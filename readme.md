@@ -1,0 +1,1 @@
+this is ai server for Vidyalaya app.
