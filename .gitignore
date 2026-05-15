@@ -19,9 +19,16 @@ env/
 !.env.example
 
 # Local data and generated indexes
-data/raw/
-data/processed/
+data/raw/**
+!data/raw/
+!data/raw/**/
+!data/raw/**/.gitkeep
+data/processed/**
+!data/processed/
+!data/processed/**/
+!data/processed/**/.gitkeep
 experiments/
+qdrant_storage/
 *.sqlite3
 *.db
 
