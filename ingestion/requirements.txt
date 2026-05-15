@@ -1,0 +1,4 @@
+docling>=2.93,<3
+pypdf>=6,<7
+surya-ocr>=0.15,<1
+transformers>=4.56.1,<5
