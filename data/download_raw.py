@@ -7,11 +7,11 @@ from pathlib import Path
 
 
 BOOKS = [
-    {
-        "subject": "odia",
-        "book_name": "ସାହିତ୍ୟସୁରଭି",
-        "download_url": "https://drive.google.com/uc?export=download&id=1QKBOWJMg0yPJ3nIvuXS4NPiZMIprzaGg",
-    },
+    # {
+    #     "subject": "odia",
+    #     "book_name": "ସାହିତ୍ୟସୁରଭି",
+    #     "download_url": "https://drive.google.com/uc?export=download&id=1QKBOWJMg0yPJ3nIvuXS4NPiZMIprzaGg",
+    # },
     # {
     #     "subject": "english",
     #     "book_name": "Jasmine",
