@@ -15,7 +15,7 @@ Goal: build the first production-ready ingestion and query flow for OCR textbook
 - Ingestion style: staged by board, class, and subject as books become ready
 - Point IDs: deterministic, never random, so repeated ingestion can safely update existing chunks
 - Gemini SDK usage: embeddings only, never LLM answering or agent orchestration
-- LLM/agent layer: use LangChain and LangGraph later so the answer model can change
+- LLM/agent layer: use LangChain-compatible LLM calls and LangGraph later for orchestration so the answer model can change
 
 ## Current Input Format
 
@@ -148,7 +148,7 @@ Page: 1
 - [x] Query using board, class, and subject filters.
 - [x] Inspect top 10 results manually.
 - [x] Confirm page numbers and text look correct.
-- [ ] Then ingest all class 8 subjects.
+- [x] Then ingest all class 8 subjects.
 - [ ] Later ingest class 9, class 10, and other classes into the same collection by changing config.
 - [x] Re-running the same subject should update existing points, not duplicate them.
 
@@ -171,15 +171,26 @@ Represent this student question for retrieving relevant textbook passages.
 
 ## Phase 9: Merge And Expand Context
 
-- [ ] Group top 10 hits by book_id and page_no.
-- [ ] For strong hits, fetch nearby chunks from the same page:
+- [x] Group top 10 hits by book_id and page_no.
+- [x] For strong hits, fetch nearby chunks from the same page:
   - previous chunk
   - matched chunk
   - next chunk
-- [ ] Optionally fetch previous or next page only when needed.
-- [ ] Merge expanded chunks in page order.
-- [ ] Keep final context to 2-4 blocks.
-- [ ] Include citation metadata for each block.
+- [x] Optionally fetch previous or next page only when needed.
+- [x] Merge expanded chunks in page order.
+- [x] Keep final context to 2-4 blocks.
+- [x] Include citation metadata for each block.
+- [x] Keep merge/expand behavior configurable.
+
+Config knobs:
+
+```python
+final_context_blocks = 4
+neighbor_chunk_window = 1
+neighbor_page_window = 0
+max_context_chars = 6000
+dedupe_context_chunks = True
+```
 
 Final context block shape:
 
@@ -195,25 +206,35 @@ Final context block shape:
 
 ## Phase 10: Answer Generation
 
-- [ ] Send student query and 2-4 context blocks to the LLM.
-- [ ] Use LangChain/LangGraph for LLM calls, not direct Gemini SDK.
-- [ ] Keep the final answer model configurable.
-- [ ] Tell the LLM to answer only from the provided context.
-- [ ] Ask it to include book/page citation.
-- [ ] If context is weak, say the answer was not found clearly.
+- [x] Send student query and 2-4 context blocks to the LLM.
+- [x] Use LangChain-compatible LLM calls, not direct Gemini SDK.
+- [x] Keep the final answer model configurable.
+- [x] Tell the LLM to answer only from the provided context.
+- [x] Ask it to include book/page citation.
+- [x] If context is weak, say the answer was not found clearly.
 
 ## Phase 11: Basic Evaluation
 
-- [ ] Create 20-30 test questions from class 8 books.
-- [ ] Track whether top 10 contains the correct page.
-- [ ] Track whether final 2-4 context blocks are useful.
-- [ ] Track bad cases:
+- [x] Create 10-20 test questions from class 8 books.
+- [x] Track whether top 10 contains the correct page.
+- [x] Track whether final 2-4 context blocks are useful.
+- [x] Track bad cases:
   - wrong subject
   - right subject but wrong chapter/page
   - OCR text issue
   - chunk too small
   - chunk too large
-- [ ] Tune chunk size and overlap only after checking failures.
+- [x] Tune chunk size and overlap only after checking failures.
+
+Latest basic evaluation:
+
+```text
+Report: reports/rag_eval_class8.jsonl
+Total cases: 14
+Top-10 expected page pass: 14/14
+Final context expected page pass: 14/14
+Failed cases: 0
+```
 
 ## Later Improvements
 

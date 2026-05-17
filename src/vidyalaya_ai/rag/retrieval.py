@@ -21,7 +21,7 @@ def retrieve_chunks(
     *,
     board: str,
     class_no: int,
-    subject: str,
+    subject: str | None = None,
     top_k: int | None = None,
     config: RagConfig | None = None,
 ) -> list[dict[str, Any]]:
@@ -46,7 +46,7 @@ def retrieve_chunks(
         with_payload=True,
     )
 
-    chunks = [_format_result(point) for point in results.points]
+    chunks = [format_qdrant_point(point) for point in results.points]
     logger.info("Retrieved %s chunks", len(chunks))
     for chunk in chunks[:5]:
         logger.info(
@@ -61,22 +61,23 @@ def retrieve_chunks(
     return chunks
 
 
-def _build_filter(*, board: str, class_no: int, subject: str) -> Filter:
+def _build_filter(*, board: str, class_no: int, subject: str | None = None) -> Filter:
     """Build Qdrant metadata filter for textbook retrieval."""
-    return Filter(
-        must=[
-            FieldCondition(key="board", match=MatchValue(value=board)),
-            FieldCondition(key="class", match=MatchValue(value=class_no)),
-            FieldCondition(key="subject", match=MatchValue(value=subject)),
-        ]
-    )
+    conditions = [
+        FieldCondition(key="board", match=MatchValue(value=board)),
+        FieldCondition(key="class", match=MatchValue(value=class_no)),
+    ]
+    if subject:
+        conditions.append(FieldCondition(key="subject", match=MatchValue(value=subject)))
+
+    return Filter(must=conditions)
 
 
-def _format_result(point) -> dict[str, Any]:
+def format_qdrant_point(point) -> dict[str, Any]:
     """Return a compact retrieval result from a Qdrant point."""
     payload = point.payload or {}
     return {
-        "score": point.score,
+        "score": getattr(point, "score", None),
         "chunk_id": payload.get("chunk_id"),
         "board": payload.get("board"),
         "class": payload.get("class"),

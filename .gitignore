@@ -29,6 +29,7 @@ data/processed/**
 !data/processed/**/.gitkeep
 experiments/
 qdrant_storage/
+reports/
 *.sqlite3
 *.db
 

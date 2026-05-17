@@ -18,6 +18,13 @@ class RagConfig:
     embedding_dim: int = 1536
     top_k: int = 10
     request_timeout_ms: int = 60_000
+    final_context_blocks: int = 4
+    neighbor_chunk_window: int = 1
+    neighbor_page_window: int = 0
+    max_context_chars: int = 6_000
+    dedupe_context_chunks: bool = True
+    min_context_score: float = 0.45
+    max_answer_context_chars: int = 12_000
 
 
 def load_gemini_api_key(env_path: str = ".env") -> str:
@@ -29,4 +36,3 @@ def load_gemini_api_key(env_path: str = ".env") -> str:
         raise RuntimeError("GEMINI_API_KEY is not set.")
 
     return api_key
-
