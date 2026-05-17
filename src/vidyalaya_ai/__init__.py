@@ -1,0 +1,2 @@
+"""Vidyalaya AI application package."""
+

@@ -14,6 +14,8 @@ Goal: build the first production-ready ingestion and query flow for OCR textbook
 - Context strategy: merge and expand nearby chunks before sending to the LLM
 - Ingestion style: staged by board, class, and subject as books become ready
 - Point IDs: deterministic, never random, so repeated ingestion can safely update existing chunks
+- Gemini SDK usage: embeddings only, never LLM answering or agent orchestration
+- LLM/agent layer: use LangChain and LangGraph later so the answer model can change
 
 ## Current Input Format
 
@@ -152,11 +154,12 @@ Page: 1
 
 ## Phase 8: Query Flow V1
 
-- [ ] Accept student query.
-- [ ] Accept filters: board, class, subject.
-- [ ] Embed query with Gemini Embedding 2 at 1536 dimensions.
-- [ ] Search Qdrant with top 10.
-- [ ] Return score, subject, book, page, chunk id, and text preview.
+- [x] Accept student query.
+- [x] Accept filters: board, class, subject.
+- [x] Embed query with Gemini Embedding 2 at 1536 dimensions.
+- [x] Search Qdrant with top 10.
+- [x] Return score, subject, book, page, chunk id, and text preview.
+- [x] Keep Gemini SDK isolated to query embeddings only.
 
 Query embedding text format:
 
@@ -193,6 +196,8 @@ Final context block shape:
 ## Phase 10: Answer Generation
 
 - [ ] Send student query and 2-4 context blocks to the LLM.
+- [ ] Use LangChain/LangGraph for LLM calls, not direct Gemini SDK.
+- [ ] Keep the final answer model configurable.
 - [ ] Tell the LLM to answer only from the provided context.
 - [ ] Ask it to include book/page citation.
 - [ ] If context is weak, say the answer was not found clearly.
