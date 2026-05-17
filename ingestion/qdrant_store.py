@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -9,6 +10,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PayloadSchemaType, PointStruct, VectorParams
 
 
+logger = logging.getLogger("ingestion")
 POINT_ID_NAMESPACE = uuid.UUID("f75f2f86-8e9d-4c7b-94c3-7b70a4a676f1")
 FILTER_INDEXES = {
     "board": PayloadSchemaType.KEYWORD,
@@ -36,10 +38,10 @@ def ensure_collection(
             collection_name=collection_name,
             vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
         )
-        print(f"Created Qdrant collection: {collection_name}")
+        logger.info("Created Qdrant collection: %s", collection_name)
     else:
         _validate_collection_vector_size(client, collection_name, vector_size)
-        print(f"Qdrant collection already exists: {collection_name}")
+        logger.info("Qdrant collection already exists: %s", collection_name)
 
     _ensure_payload_indexes(client, collection_name)
 
@@ -72,7 +74,7 @@ def upsert_embedded_chunks(
         )
 
         inserted_count += len(points)
-        print(f"Upserted {inserted_count}/{len(embedded_records)} points")
+        logger.info("Upserted %s/%s points", inserted_count, len(embedded_records))
 
     return inserted_count
 
@@ -91,7 +93,7 @@ def _ensure_payload_indexes(client: QdrantClient, collection_name: str) -> None:
             field_schema=field_schema,
             wait=True,
         )
-        print(f"Ensured payload index: {field_name}")
+        logger.info("Ensured payload index: %s", field_name)
 
 
 def _validate_collection_vector_size(

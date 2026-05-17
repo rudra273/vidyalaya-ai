@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass
@@ -14,6 +15,9 @@ from google.genai import types
 from dotenv import load_dotenv
 
 
+logger = logging.getLogger("ingestion")
+
+
 @dataclass(frozen=True)
 class EmbeddingConfig:
     """Settings for Gemini document embeddings."""
@@ -23,7 +27,8 @@ class EmbeddingConfig:
     batch_size: int = 32
     cache_path: Path | None = None
     request_delay_seconds: float = 2.0
-    max_retries: int = 5
+    request_timeout_ms: int = 60_000
+    retry_wait_seconds: tuple[int, ...] = (2, 5, 10, 20, 40, 60, 90, 120)
 
 
 def load_gemini_api_key(env_path: Path | str = ".env") -> str:
@@ -50,7 +55,10 @@ def embed_chunks(
         return []
 
     api_key = api_key or load_gemini_api_key()
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(timeout=config.request_timeout_ms),
+    )
     cached_records = _load_cached_embeddings(config.cache_path)
     embedded_records: list[dict[str, Any]] = []
 
@@ -60,17 +68,25 @@ def embed_chunks(
             embedded_records.append(cached_record)
 
     chunks_to_embed = [chunk for chunk in chunks if chunk["chunk_id"] not in cached_records]
-    print(f"Embedding cache hits: {len(embedded_records)}")
-    print(f"Chunks left to embed: {len(chunks_to_embed)}")
+    logger.info("Embedding cache hits: %s", len(embedded_records))
+    logger.info("Chunks left to embed: %s", len(chunks_to_embed))
 
-    for chunk in chunks_to_embed:
+    for pending_index, chunk in enumerate(chunks_to_embed, start=1):
         prepared_text = format_document_for_embedding(chunk)
+        logger.info(
+            "Embedding chunk %s/%s: %s page=%s chunk=%s",
+            pending_index,
+            len(chunks_to_embed),
+            chunk["subject"],
+            chunk["page_no"],
+            chunk["chunk_id"],
+        )
         vector = _embed_one_text_with_retry(
             prepared_text,
             client=client,
             model=config.model,
             dimension=config.dimension,
-            max_retries=config.max_retries,
+            retry_wait_seconds=config.retry_wait_seconds,
         )
         record = {
             "chunk_id": chunk["chunk_id"],
@@ -79,11 +95,12 @@ def embed_chunks(
         }
         _append_cached_embeddings(config.cache_path, [record])
         embedded_records.append(record)
+        logger.info("Cached embedding: %s", chunk["chunk_id"])
 
         done_count = len(embedded_records)
         total_count = len(chunks)
         if done_count == total_count or done_count % config.batch_size == 0:
-            print(f"Embedded {done_count}/{total_count} chunks")
+            logger.info("Embedded %s/%s chunks", done_count, total_count)
 
         if config.request_delay_seconds > 0:
             time.sleep(config.request_delay_seconds)
@@ -148,10 +165,10 @@ def _embed_one_text_with_retry(
     client: genai.Client,
     model: str,
     dimension: int,
-    max_retries: int,
+    retry_wait_seconds: tuple[int, ...],
 ) -> list[float]:
-    """Embed one text string with simple backoff for rate limits."""
-    for attempt in range(max_retries + 1):
+    """Embed one text string with backoff for rate limits."""
+    for attempt in range(len(retry_wait_seconds) + 1):
         try:
             return _embed_one_text(
                 text,
@@ -160,11 +177,17 @@ def _embed_one_text_with_retry(
                 dimension=dimension,
             )
         except Exception as exc:
-            if not _is_rate_limit_error(exc) or attempt == max_retries:
+            if not _is_rate_limit_error(exc) or attempt == len(retry_wait_seconds):
+                logger.exception("Gemini embedding failed after retries")
                 raise
 
-            wait_seconds = min(60, 5 * (2**attempt))
-            print(f"Gemini rate limit hit. Waiting {wait_seconds}s before retry...")
+            wait_seconds = retry_wait_seconds[attempt]
+            logger.warning(
+                "Gemini rate limit hit on attempt %s/%s. Waiting %ss before retry.",
+                attempt + 1,
+                len(retry_wait_seconds),
+                wait_seconds,
+            )
             time.sleep(wait_seconds)
 
     raise RuntimeError("Embedding retry loop ended unexpectedly")
