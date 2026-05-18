@@ -1,22 +1,21 @@
-# Doubt Solver Agent Plan
+# LearnAssist Agent Plan
 
 ## Purpose
 
-The Doubt Solver Agent answers a student's direct question using textbook RAG.
+The LearnAssist Agent answers a student's direct study question using textbook RAG.
 
 This is the first agent to build because the current RAG pipeline already supports it:
 
 ```text
 student query
--> query embedding
--> Qdrant retrieval
--> merge/expand context
+-> retrieve_textbook tool when needed
+-> context blocks
 -> LLM answer with citations
 ```
 
 ## Student Experience
 
-The student can ask any textbook-related doubt:
+The student can ask any textbook-related question:
 
 ```text
 Who was Major Somnath Sharma?
@@ -28,19 +27,23 @@ What are quadrilaterals?
 The agent should:
 
 - answer simply
-- use textbook context only
-- cite book/page
+- use textbook context when the question needs textbook grounding
+- cite book/page when textbook context is used
 - explain step by step when useful
 - say clearly when the answer is not found in the available context
 - avoid pretending if retrieval is weak
+- reuse existing conversation context when enough context is already available
 
-## Inputs
+## Inputs From Client/API
+
+The app/client owns trusted filters.
 
 Minimum input:
 
 ```json
 {
   "query": "Who was Major Somnath Sharma?",
+  "board": "scert_odisha",
   "class_no": 8
 }
 ```
@@ -49,13 +52,29 @@ Optional filters:
 
 ```json
 {
-  "board": "scert_odisha",
   "subject": "english",
   "language": "en"
 }
 ```
 
-Subject can be optional. If not provided, retrieval can search across all subjects for the selected class.
+Subject can be optional. If not provided, the `retrieve_textbook` tool can search across all subjects for the selected class.
+
+## Tool Use Rule
+
+The agent should decide whether textbook retrieval is needed.
+
+Call `retrieve_textbook` when:
+
+- the student asks a new factual/textbook question
+- the current conversation does not already contain enough context
+- the student switches topic or subject
+- the student asks for citations/page references and current context is missing them
+
+Do not call `retrieve_textbook` when:
+
+- the student asks to re-explain the immediately previous answer
+- the student asks "what page was that from?" and citations are already in memory
+- the student asks a follow-up that can be answered from existing context
 
 ## Outputs
 
@@ -73,7 +92,9 @@ Response shape:
     }
   ],
   "retrieval": {
-    "subject_used": "english",
+    "tool_used": true,
+    "subject_filter": null,
+    "subjects_found": ["english"],
     "top_score": 0.75,
     "context_block_count": 4
   }
@@ -82,18 +103,18 @@ Response shape:
 
 ## MVP Flow
 
-1. Receive student query and optional filters.
-2. Retrieve top chunks from Qdrant.
-3. Build 2-4 merged context blocks.
-4. Pass query + context to the LLM answer function.
+1. Receive student query and client/API filters.
+2. Decide whether current conversation context is enough.
+3. If needed, call `retrieve_textbook`.
+4. Pass query + context to the generic LLM answer function.
 5. Return answer, citations, and basic retrieval metadata.
 
 ## Prompt Behavior
 
 The agent prompt should instruct:
 
-- answer only from provided textbook context
-- do not use outside knowledge
+- answer only from provided textbook context when context is used
+- do not use outside knowledge for textbook-grounded answers
 - cite context labels like `[1]`, `[2]`
 - if context is weak, say the answer was not found clearly
 - use the student's language when possible
@@ -108,14 +129,26 @@ The agent prompt should instruct:
 - no parent/teacher analytics
 - no multi-agent routing
 
-## RAG Config Defaults
+## Tool Contract
 
-```python
-top_k = 10
-final_context_blocks = 4
-neighbor_chunk_window = 1
-neighbor_page_window = 0
-max_context_chars = 6000
+The agent should not own retrieval tuning.
+
+Client/API provides:
+
+```text
+query
+board
+class_no
+subject optional
+```
+
+The tool owns:
+
+```text
+top_k
+context block count
+neighbor expansion
+max context chars
 ```
 
 ## Edge Cases
@@ -124,9 +157,9 @@ max_context_chars = 6000
 
 If subject is missing:
 
+- call `retrieve_textbook` with `subject=None`
 - search across all subjects for the class
-- infer the most likely subject from retrieved results
-- include the selected subject in metadata
+- include found subjects in metadata
 
 ### Weak Retrieval
 
@@ -140,7 +173,7 @@ If top score is weak or context is unrelated:
 
 If top results come from multiple subjects:
 
-- prefer the strongest cluster
+- prefer the strongest context blocks
 - mention uncertainty only if needed
 
 ## Later Improvements

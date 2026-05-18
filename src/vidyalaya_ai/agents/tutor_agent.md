@@ -128,11 +128,11 @@ If the student is wrong, give a hint before giving the answer.
 
 Move to the next part only after the student is ready.
 
-## Difference From Doubt Solver Agent
+## Difference From LearnAssist Agent
 
 | Agent | Main Job |
 |---|---|
-| Doubt Solver Agent | Answer one question |
+| LearnAssist Agent | Answer one study question |
 | Tutor Agent | Teach a subject over time |
 
 ## What It Should Not Do In MVP

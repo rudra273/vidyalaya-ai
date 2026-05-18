@@ -2,20 +2,23 @@
 
 ## Purpose
 
-The LLM folder should contain core model/provider setup only.
+The `llm/` folder contains only core model/provider setup.
 
-It should not contain agent personality, tutor behavior, routing logic, or long system prompts. Those belong in the agent layer.
+It should not contain agent personality, tutor behavior, routing logic, textbook-answer prompts, or system prompts. Those belong in the agent layer.
 
-## Current Boundary
+## Boundary
 
 ```text
 rag/
-  retrieval and context
+  retrieval and context building
+
+tools/
+  callable tools such as retrieve_textbook
 
 llm/
-  model/provider setup
-  common LLM invocation helpers
-  generic answer helper
+  provider config
+  provider implementations
+  chat model factory
 
 agents/
   agent prompts
@@ -23,76 +26,87 @@ agents/
   conversation flow
 ```
 
-## Important Rule
+## Important Rules
 
-Gemini SDK is used only for embeddings.
+- Gemini SDK is used only for embeddings.
+- Final answer generation uses LangChain-compatible chat model objects.
+- Agents import the model factory and own their own prompts.
+- The LLM folder should not decide whether to retrieve, tutor, quiz, or answer.
 
-Final answer models should be called through LangChain-compatible interfaces so the model can be changed later.
-
-## MVP LLM Responsibilities
-
-- load LLM provider config
-- create LangChain chat model
-- expose simple factory function
-- keep temperature/max tokens/model name configurable
-- support different providers later
-
-## Suggested Files Later
+## Current Structure
 
 ```text
 src/vidyalaya_ai/llm/
+  __init__.py
   config.py
   factory.py
-  answer.py
+  providers/
+    __init__.py
+    google.py
+  llm_plan.md
 ```
 
-## Config Shape
+## Current Provider
+
+Google Gemini is configured through `langchain-google-genai`.
+
+Default config:
 
 ```json
 {
   "provider": "google",
   "model": "gemini-2.5-flash",
   "temperature": 0.2,
-  "max_tokens": 1200
+  "max_tokens": 1200,
+  "request_timeout": 60.0
 }
 ```
 
-Provider examples:
+The Google provider reads `GOOGLE_API_KEY`.
 
-```text
-google
-openai
-anthropic
-local
-```
+For compatibility with the current project setup, it also accepts `GEMINI_API_KEY` as a fallback.
 
-## Factory Example
+## Factory Contract
 
-The future factory should expose:
+Agents should use:
 
 ```python
-def create_chat_model(config: LLMConfig):
-    ...
+from vidyalaya_ai.llm import LLMConfig, create_chat_model
+
+llm = create_chat_model(
+    LLMConfig(
+        provider="google",
+        model="gemini-2.5-flash",
+        temperature=0.2,
+        max_tokens=1200,
+    )
+)
 ```
 
-Agents should receive the model from this factory.
+The returned object is a LangChain-compatible chat model.
+
+## Provider Expansion Later
+
+Future providers can be added without changing agent code:
+
+```text
+src/vidyalaya_ai/llm/providers/
+  google.py
+  openai.py
+  anthropic.py
+  local.py
+```
+
+Then `factory.py` should route by `LLMConfig.provider`.
 
 ## What Should Not Be Here
 
 - Tutor Agent system prompt
-- Doubt Solver Agent prompt
+- LearnAssist Agent prompt
+- textbook answer prompt
 - routing rules
 - student progress logic
 - subject-specific teaching behavior
 - worksheet generation rules
 
-## Current Status
-
-`answer.py` currently contains a generic LangChain-compatible helper:
-
-```python
-generate_answer(query=..., context_blocks=..., llm=...)
-```
-
-This is acceptable for now because it is generic and model-agnostic. Later, agent-specific prompts can move into agent files while this folder keeps only common model invocation code.
-
+Those will live in `agents/` and call tools or chat models as needed.

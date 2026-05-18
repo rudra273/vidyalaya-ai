@@ -16,6 +16,9 @@ Goal: build the first production-ready ingestion and query flow for OCR textbook
 - Point IDs: deterministic, never random, so repeated ingestion can safely update existing chunks
 - Gemini SDK usage: embeddings only, never LLM answering or agent orchestration
 - LLM/agent layer: use LangChain-compatible LLM calls and LangGraph later for orchestration so the answer model can change
+- Client/API owns trusted filters: query, board, class_no, subject optional
+- Tools own internal retrieval tuning: top_k, context blocks, neighbor expansion, max context chars
+- Agents decide when tools are needed; agents should not blindly retrieve every turn
 
 ## Current Input Format
 
@@ -204,14 +207,13 @@ Final context block shape:
 }
 ```
 
-## Phase 10: Answer Generation
+## Phase 10: Answer Generation Direction
 
-- [x] Send student query and 2-4 context blocks to the LLM.
 - [x] Use LangChain-compatible LLM calls, not direct Gemini SDK.
-- [x] Keep the final answer model configurable.
-- [x] Tell the LLM to answer only from the provided context.
-- [x] Ask it to include book/page citation.
-- [x] If context is weak, say the answer was not found clearly.
+- [x] Keep the final answer model configurable through the LLM provider layer.
+- [x] Do not keep answer prompts or system prompts in the `llm/` folder.
+- [x] Let agents own final answer behavior, citation rules, and fallback wording.
+- [x] Keep Gemini SDK usage limited to embeddings only.
 
 ## Phase 11: Basic Evaluation
 
@@ -236,6 +238,62 @@ Final context expected page pass: 14/14
 Failed cases: 0
 ```
 
+## Phase 12: Retrieve Textbook Tool
+
+- [x] Create `src/vidyalaya_ai/tools/retrieve_textbook.py`.
+- [x] Create a small config object for server-side tool tuning:
+  - top_k
+  - context_blocks
+  - neighbor_chunk_window
+  - neighbor_page_window
+  - max_context_chars
+- [x] Implement `retrieve_textbook(query, board, class_no, subject=None)`.
+- [x] Use client/API-provided board, class, and optional subject.
+- [x] Do not let student/client control internal retrieval tuning in MVP.
+- [x] Call existing `retrieve_chunks()` and `build_context_blocks()`.
+- [x] Return context blocks, raw hits, and metadata.
+- [x] Include subjects found, pages found, top score, and context block count.
+- [x] Add logging.
+- [x] Add a simple local test for:
+  - subject provided
+  - subject missing
+  - cross-subject retrieval
+
+## Phase 13: LLM Provider Setup
+
+- [x] Remove generic answer/prompt code from the LLM folder.
+- [x] Create `src/vidyalaya_ai/llm/config.py`.
+- [x] Create `src/vidyalaya_ai/llm/factory.py`.
+- [x] Create provider module `src/vidyalaya_ai/llm/providers/google.py`.
+- [x] Keep provider/model/temperature/max tokens configurable.
+- [x] Return LangChain-compatible chat model objects.
+- [x] Do not place agent prompts in the LLM folder.
+- [x] Keep Gemini SDK out of answer generation.
+- [x] Support at least one provider first, then add more later.
+
+## Phase 14: LearnAssist Agent
+
+- [ ] Rename backend concept from Doubt Solver to LearnAssist.
+- [ ] Create LearnAssist agent implementation.
+- [ ] Agent receives query and client/API filters from state.
+- [ ] Agent decides whether `retrieve_textbook` is needed.
+- [ ] Agent reuses existing conversation context when enough.
+- [ ] Agent calls `retrieve_textbook` for new textbook questions.
+- [ ] Agent builds its own prompt/messages and calls the configured LLM.
+- [ ] Agent returns answer, citations, and retrieval metadata.
+- [ ] Keep implementation simple before adding LangGraph complexity.
+
+## Phase 15: Tutor Agent
+
+- [ ] Create Tutor agent implementation after LearnAssist is stable.
+- [ ] Start with text-only tutoring.
+- [ ] Use selected board/class/subject from client/API state.
+- [ ] Teach one small topic at a time.
+- [ ] Ask check questions.
+- [ ] Give hints and feedback.
+- [ ] Track current subject/topic/page in session state.
+- [ ] Keep voice tutoring as future feature, not MVP.
+
 ## Later Improvements
 
 - [ ] Add reranking only if top 10 has good candidates but final answers are noisy.
@@ -243,3 +301,4 @@ Failed cases: 0
 - [ ] Add chapter metadata later if chapter detection becomes available.
 - [ ] Move from local Qdrant to Qdrant Cloud after local ingestion is stable.
 - [ ] Add image/page references later for multimodal retrieval.
+- [ ] Add voice interaction for Tutor Agent.

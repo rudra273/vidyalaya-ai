@@ -1,13 +1,11 @@
-"""Simple hardcoded RAG retrieval test."""
+"""Simple hardcoded retrieve_textbook tool test."""
 
 from __future__ import annotations
 
 import textwrap
 from typing import Any
 
-from vidyalaya_ai.rag.config import RagConfig
-from vidyalaya_ai.rag.context import build_context_blocks
-from vidyalaya_ai.rag.retrieval import retrieve_chunks
+from vidyalaya_ai.tools.retrieve_textbook import TextbookRetrievalConfig, retrieve_textbook
 
 
 # Change only these values while testing.
@@ -28,24 +26,24 @@ PREVIEW_CHARS = 1200
 
 
 def main() -> None:
-    """Run a manual query and print raw hits plus merged context."""
-    config = RagConfig(
-        top_k=TOP_K,
-        final_context_blocks=CONTEXT_BLOCKS,
-        neighbor_chunk_window=NEIGHBOR_CHUNK_WINDOW,
-        neighbor_page_window=NEIGHBOR_PAGE_WINDOW,
-        max_context_chars=MAX_CONTEXT_CHARS,
-    )
-
-    hits = retrieve_chunks(
-        QUERY,
+    """Run a manual query and print tool output."""
+    result = retrieve_textbook(
+        query=QUERY,
         board=BOARD,
         class_no=CLASS_NO,
         subject=SUBJECT,
-        top_k=TOP_K,
-        config=config,
+        tool_config=TextbookRetrievalConfig(
+            top_k=TOP_K,
+            context_blocks=CONTEXT_BLOCKS,
+            neighbor_chunk_window=NEIGHBOR_CHUNK_WINDOW,
+            neighbor_page_window=NEIGHBOR_PAGE_WINDOW,
+            max_context_chars=MAX_CONTEXT_CHARS,
+        ),
     )
-    contexts = build_context_blocks(hits, config=config)
+
+    raw_hits = result["raw_hits"]
+    contexts = result["context_blocks"]
+    metadata = result["metadata"]
 
     print("\nINPUT")
     print("=" * 100)
@@ -54,9 +52,13 @@ def main() -> None:
     print(f"class: {CLASS_NO}")
     print(f"subject: {SUBJECT}")
 
+    print("\nMETADATA")
+    print("=" * 100)
+    print(metadata)
+
     print("\nRAW TOP HITS")
     print("=" * 100)
-    for index, hit in enumerate(hits, start=1):
+    for index, hit in enumerate(raw_hits, start=1):
         print_hit(index, hit)
 
     print("\nMERGED CONTEXT BLOCKS")
@@ -65,14 +67,63 @@ def main() -> None:
         print_context_block(index, block)
 
 
+def run_subject_provided_test() -> dict[str, Any]:
+    """Run a quick test with an explicit subject filter."""
+    return retrieve_textbook(
+        query=QUERY,
+        board=BOARD,
+        class_no=CLASS_NO,
+        subject="science",
+        tool_config=TextbookRetrievalConfig(
+            top_k=TOP_K,
+            context_blocks=CONTEXT_BLOCKS,
+            neighbor_chunk_window=NEIGHBOR_CHUNK_WINDOW,
+            neighbor_page_window=NEIGHBOR_PAGE_WINDOW,
+            max_context_chars=MAX_CONTEXT_CHARS,
+        ),
+    )
+
+
+def run_subject_missing_test() -> dict[str, Any]:
+    """Run a quick test without a subject filter."""
+    return retrieve_textbook(
+        query=QUERY,
+        board=BOARD,
+        class_no=CLASS_NO,
+        subject=None,
+        tool_config=TextbookRetrievalConfig(
+            top_k=TOP_K,
+            context_blocks=CONTEXT_BLOCKS,
+            neighbor_chunk_window=NEIGHBOR_CHUNK_WINDOW,
+            neighbor_page_window=NEIGHBOR_PAGE_WINDOW,
+            max_context_chars=MAX_CONTEXT_CHARS,
+        ),
+    )
+
+
+def run_cross_subject_test() -> dict[str, Any]:
+    """Run a quick test where subject discovery should happen through retrieval."""
+    return retrieve_textbook(
+        query="Who was Major Somnath Sharma?",
+        board=BOARD,
+        class_no=CLASS_NO,
+        subject=None,
+        tool_config=TextbookRetrievalConfig(
+            top_k=TOP_K,
+            context_blocks=CONTEXT_BLOCKS,
+            neighbor_chunk_window=NEIGHBOR_CHUNK_WINDOW,
+            neighbor_page_window=NEIGHBOR_PAGE_WINDOW,
+            max_context_chars=MAX_CONTEXT_CHARS,
+        ),
+    )
+
+
 def print_hit(index: int, hit: dict[str, Any]) -> None:
     """Print one raw retrieval hit."""
     print(f"\n[{index}] score={hit['score']:.4f}")
     print(f"subject={hit['subject']} | book={hit['book_name']} | page={hit['page_no']}")
     print(f"source_pdf={hit['source_pdf']}")
     print(f"chunk_id={hit['chunk_id']} | chunk_index={hit['chunk_index']}")
-    print("text preview:")
-    print(indent_text(str(hit["text"])[:500]))
 
 
 def print_context_block(index: int, block: dict[str, Any]) -> None:
