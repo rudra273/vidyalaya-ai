@@ -30,8 +30,7 @@ The agent should:
 - use textbook context when the question needs textbook grounding
 - cite book/page when textbook context is used
 - explain step by step when useful
-- say clearly when the answer is not found in the available context
-- avoid pretending if retrieval is weak
+- answer normally if textbook context is missing or not useful
 - reuse existing conversation context when enough context is already available
 
 ## Inputs From Client/API
@@ -106,17 +105,18 @@ Response shape:
 1. Receive student query and client/API filters.
 2. Decide whether current conversation context is enough.
 3. If needed, call `retrieve_textbook`.
-4. Pass query + context to the generic LLM answer function.
-5. Return answer, citations, and basic retrieval metadata.
+4. Build LearnAssist prompt/messages inside the agent.
+5. Call the configured LangChain-compatible LLM.
+6. Return answer, citations, and basic retrieval metadata.
 
 ## Prompt Behavior
 
 The agent prompt should instruct:
 
 - answer only from provided textbook context when context is used
-- do not use outside knowledge for textbook-grounded answers
-- cite context labels like `[1]`, `[2]`
-- if context is weak, say the answer was not found clearly
+- use general knowledge when context is missing or not useful
+- cite context labels like `[1]`, `[2]` only when textbook context is used
+- if context is weak, still answer normally without forcing textbook citations
 - use the student's language when possible
 - keep the answer understandable for school students
 
@@ -165,9 +165,9 @@ If subject is missing:
 
 If top score is weak or context is unrelated:
 
-- do not hallucinate
-- say the answer was not found clearly
-- suggest selecting a subject or rephrasing the query
+- still let the LLM answer normally
+- avoid citation labels unless context was actually used
+- keep retrieval metadata so we can debug later
 
 ### Mixed Results
 
@@ -184,4 +184,3 @@ If top results come from multiple subjects:
 - follow-up suggestions
 - short answer / detailed answer mode
 - citation links to page images
-

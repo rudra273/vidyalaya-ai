@@ -273,26 +273,55 @@ Failed cases: 0
 
 ## Phase 14: LearnAssist Agent
 
-- [ ] Rename backend concept from Doubt Solver to LearnAssist.
-- [ ] Create LearnAssist agent implementation.
-- [ ] Agent receives query and client/API filters from state.
-- [ ] Agent decides whether `retrieve_textbook` is needed.
-- [ ] Agent reuses existing conversation context when enough.
-- [ ] Agent calls `retrieve_textbook` for new textbook questions.
-- [ ] Agent builds its own prompt/messages and calls the configured LLM.
-- [ ] Agent returns answer, citations, and retrieval metadata.
-- [ ] Keep implementation simple before adding LangGraph complexity.
+- [x] Rename backend concept from Doubt Solver to LearnAssist.
+- [x] Create LearnAssist agent implementation.
+- [x] Agent receives query and client/API filters from state.
+- [x] Agent decides whether `retrieve_textbook` is needed.
+- [x] Agent reuses existing conversation context when enough.
+- [x] Agent calls `retrieve_textbook` for new textbook questions.
+- [x] Agent builds its own prompt/messages and calls the configured LLM.
+- [x] Agent returns answer, citations, and retrieval metadata.
+- [x] Keep implementation simple before adding LangGraph complexity.
 
-## Phase 15: Tutor Agent
+## Phase 15: Release 1 API Design
 
-- [ ] Create Tutor agent implementation after LearnAssist is stable.
-- [ ] Start with text-only tutoring.
-- [ ] Use selected board/class/subject from client/API state.
-- [ ] Teach one small topic at a time.
-- [ ] Ask check questions.
-- [ ] Give hints and feedback.
-- [ ] Track current subject/topic/page in session state.
-- [ ] Keep voice tutoring as future feature, not MVP.
+- [x] Design one LearnAssist chat endpoint for Postman testing.
+- [x] Keep the API request close to the agent input:
+  - query
+  - board
+  - class_no
+  - subject optional
+  - language optional
+- [x] Keep retrieval tuning server-side.
+- [x] Define response shape with:
+  - answer
+  - citations
+  - retrieval metadata
+  - optional context blocks for debugging
+- [x] Decide error response shape for bad input and service failures.
+
+## Phase 16: Release 1 API Implementation
+
+- [x] Add FastAPI app under `src/vidyalaya_ai/api`.
+- [x] Add request/response schemas.
+- [x] Add `/health` endpoint.
+- [x] Add `/learnassist/chat` endpoint.
+- [x] Wire endpoint to `answer_with_learnassist()`.
+- [x] Add API logging.
+- [x] Add local run command for development:
+  ```bash
+  PYTHONPATH=src .venv/bin/uvicorn vidyalaya_ai.api.app:app --reload --port 8000
+  ```
+
+## Phase 17: Postman Validation
+
+- [ ] Start local API server.
+- [ ] Test `/health`.
+- [ ] Test LearnAssist with subject provided.
+- [ ] Test LearnAssist with subject missing.
+- [ ] Test Odia query.
+- [ ] Test weak/unknown query.
+- [ ] Save working Postman examples or curl commands.
 
 ## Later Improvements
 
@@ -301,4 +330,5 @@ Failed cases: 0
 - [ ] Add chapter metadata later if chapter detection becomes available.
 - [ ] Move from local Qdrant to Qdrant Cloud after local ingestion is stable.
 - [ ] Add image/page references later for multimodal retrieval.
+- [ ] Build Tutor Agent after LearnAssist release 1 is stable.
 - [ ] Add voice interaction for Tutor Agent.
