@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
 
@@ -12,7 +12,8 @@ from dotenv import load_dotenv
 class RagConfig:
     """Runtime settings for textbook retrieval."""
 
-    qdrant_url: str = "http://localhost:6333"
+    qdrant_url: str = field(default_factory=lambda: _env_value("QDRANT_URL", "http://localhost:6333"))
+    qdrant_api_key: str | None = field(default_factory=lambda: _env_value("QDRANT_API_KEY"))
     collection_name: str = "vidyalaya_textbook_chunks"
     embedding_model: str = "gemini-embedding-2"
     embedding_dim: int = 1536
@@ -36,3 +37,9 @@ def load_gemini_api_key(env_path: str = ".env") -> str:
         raise RuntimeError("GEMINI_API_KEY is not set.")
 
     return api_key
+
+
+def _env_value(name: str, default: str | None = None) -> str | None:
+    """Load one environment value from process env or .env."""
+    load_dotenv()
+    return os.getenv(name) or default

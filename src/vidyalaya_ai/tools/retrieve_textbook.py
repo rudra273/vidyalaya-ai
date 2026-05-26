@@ -98,6 +98,7 @@ def _build_rag_config(
     base_config = rag_config or RagConfig()
     return RagConfig(
         qdrant_url=base_config.qdrant_url,
+        qdrant_api_key=base_config.qdrant_api_key,
         collection_name=base_config.collection_name,
         embedding_model=base_config.embedding_model,
         embedding_dim=base_config.embedding_dim,

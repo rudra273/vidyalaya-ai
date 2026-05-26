@@ -8,9 +8,12 @@ next phases.
 from __future__ import annotations
 
 import logging
+import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -21,6 +24,12 @@ from ingestion.embed import EmbeddingConfig, embed_chunks, load_gemini_api_key
 from ingestion.loader import load_ocr_jsonl_pages
 from ingestion.logging_config import setup_logging
 from ingestion.qdrant_store import ensure_collection, make_qdrant_client, upsert_embedded_chunks
+
+
+def _env_value(name: str, default: str | None = None) -> str | None:
+    """Load one environment value from process env or .env."""
+    load_dotenv()
+    return os.getenv(name) or default
 
 
 @dataclass(frozen=True)
@@ -39,7 +48,8 @@ class IngestionConfig:
         "social_science",
     )
     processed_ocr_root: Path = Path("data/processed/ocr")
-    qdrant_url: str = "http://localhost:6333"
+    qdrant_url: str = field(default_factory=lambda: _env_value("QDRANT_URL", "http://localhost:6333"))
+    qdrant_api_key: str | None = field(default_factory=lambda: _env_value("QDRANT_API_KEY"))
     collection_name: str = "vidyalaya_textbook_chunks"
     embedding_model: str = "gemini-embedding-2"
     embedding_dim: int = 1536
@@ -80,7 +90,7 @@ def main() -> None:
     logger = setup_logging()
     config = IngestionConfig()
     api_key = load_gemini_api_key()
-    qdrant_client = make_qdrant_client(config.qdrant_url)
+    qdrant_client = make_qdrant_client(config.qdrant_url, config.qdrant_api_key)
     ensure_collection(
         qdrant_client,
         collection_name=config.collection_name,
@@ -88,6 +98,7 @@ def main() -> None:
     )
 
     logger.info("Qdrant URL: %s", config.qdrant_url)
+    logger.info("Qdrant API key configured: %s", bool(config.qdrant_api_key))
     logger.info("Collection: %s", config.collection_name)
     logger.info("Embedding model: %s", config.embedding_model)
     logger.info("Embedding dimension: %s", config.embedding_dim)

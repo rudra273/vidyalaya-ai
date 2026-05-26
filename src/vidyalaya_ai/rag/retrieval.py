@@ -32,7 +32,7 @@ def retrieve_chunks(
     config = config or RagConfig()
     top_k = top_k or config.top_k
     query_vector = embed_query(query, config)
-    client = QdrantClient(url=config.qdrant_url)
+    client = QdrantClient(url=config.qdrant_url, api_key=config.qdrant_api_key)
     query_filter = _build_filter(board=board, class_no=class_no, subject=subject)
 
     logger.info("Retrieval query: %s", query)

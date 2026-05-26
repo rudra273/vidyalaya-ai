@@ -21,9 +21,9 @@ FILTER_INDEXES = {
 }
 
 
-def make_qdrant_client(qdrant_url: str) -> QdrantClient:
+def make_qdrant_client(qdrant_url: str, qdrant_api_key: str | None = None) -> QdrantClient:
     """Create a Qdrant client for local or cloud Qdrant."""
-    return QdrantClient(url=qdrant_url)
+    return QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
 
 
 def ensure_collection(

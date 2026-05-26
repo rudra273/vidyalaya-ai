@@ -313,22 +313,124 @@ Failed cases: 0
   PYTHONPATH=src .venv/bin/uvicorn vidyalaya_ai.api.app:app --reload --port 8000
   ```
 
-## Phase 17: Postman Validation
+## Phase 17: Prepare Qdrant Cloud
 
-- [ ] Start local API server.
-- [ ] Test `/health`.
-- [ ] Test LearnAssist with subject provided.
-- [ ] Test LearnAssist with subject missing.
+- [x] Create a Qdrant Cloud account.
+- [x] Create one free or starter cluster.
+- [x] Create a Qdrant API key.
+- [x] Copy the Qdrant Cloud URL.
+- [x] Add local `.env` values:
+  ```text
+  QDRANT_URL=<cloud-qdrant-url>
+  QDRANT_API_KEY=<cloud-qdrant-api-key>
+  ```
+- [x] Update Qdrant client config to read `QDRANT_URL` and `QDRANT_API_KEY`.
+- [x] Validate connection with a small cloud health/count script:
+  ```bash
+  .venv/bin/python ingestion/validate_qdrant_cloud.py
+  ```
+- [x] Do not delete local Qdrant yet.
+
+## Phase 18: Upload Existing Embeddings To Qdrant Cloud
+
+- [ ] Confirm class 8 embedding JSONL files exist under:
+  ```text
+  data/processed/embeddings/scert_odisha/class_8
+  ```
+- [ ] Create/reuse the cloud collection:
+  ```text
+  vidyalaya_textbook_chunks
+  ```
+- [ ] Use vector size `1536` and cosine distance.
+- [ ] Create payload indexes:
+  - board
+  - class
+  - subject
+  - book_id
+  - page_no
+- [ ] Upsert existing embedded chunks into Qdrant Cloud.
+- [ ] Use deterministic point IDs so reruns update, not duplicate.
+- [ ] Log uploaded count per subject.
+- [ ] Validate cloud collection count.
+- [ ] Run a cloud query test for:
+  - subject provided
+  - subject missing
+  - Odia query
+- [ ] Compare one cloud result with local result.
+
+## Phase 19: Backend Deployment Prep
+
+- [ ] Decide deployment target:
+  - Railway first choice for simple FastAPI deployment
+  - Render as backup
+- [ ] Add or verify production start command:
+  ```bash
+  uvicorn vidyalaya_ai.api.app:app --host 0.0.0.0 --port $PORT
+  ```
+- [ ] Add deployment dependency setup using `requirements.txt`.
+- [ ] Ensure `fastapi`, `uvicorn`, `qdrant-client`, `google-genai`, and `langchain-google-genai` are in requirements.
+- [ ] Ensure app imports work with `PYTHONPATH=src` or install package properly.
+- [ ] Add a deployment note/doc with required environment variables:
+  - `GOOGLE_API_KEY` or `GEMINI_API_KEY`
+  - `QDRANT_URL`
+  - `QDRANT_API_KEY`
+- [ ] Make sure no secrets are committed.
+
+## Phase 20: Deploy Backend
+
+- [ ] Create Railway or Render service from the repository.
+- [ ] Set build/install command if needed.
+- [ ] Set start command.
+- [ ] Add environment variables.
+- [ ] Deploy the backend.
+- [ ] Open deployed `/health`.
+- [ ] Check deployment logs.
+- [ ] Fix import/env issues if deployment fails.
+
+## Phase 21: Validate Deployed API
+
+- [ ] Test deployed `/health`.
+- [ ] Test deployed `/learnassist/chat` with subject provided.
+- [ ] Test deployed `/learnassist/chat` with subject missing.
 - [ ] Test Odia query.
-- [ ] Test weak/unknown query.
-- [ ] Save working Postman examples or curl commands.
+- [ ] Test general/non-textbook query.
+- [ ] Verify `debug=false` does not return context blocks.
+- [ ] Verify `debug=true` returns context blocks.
+- [ ] Check answer latency.
+- [ ] Check backend logs.
+- [ ] Confirm Qdrant Cloud is receiving search traffic.
+
+## Phase 22: Android App Integration
+
+- [ ] Add backend base URL in Android config.
+- [ ] Connect Android app to deployed `/health`.
+- [ ] Connect Android app to `/learnassist/chat`.
+- [ ] Send `query`, `board`, `class_no`, optional `subject`, optional `language`.
+- [ ] Render `answer`.
+- [ ] Render citations when present.
+- [ ] Hide debug/context blocks in normal UI.
+- [ ] Test English query.
+- [ ] Test Odia query and font rendering.
+- [ ] Test subject missing.
+- [ ] Test slow response/loading state.
+- [ ] Test network error state.
+- [ ] Collect 10-20 real student questions and note failures.
+
+## Phase 23: Release 1 Deployment Review
+
+- [ ] Review answer quality from Android tests.
+- [ ] Review latency from Android tests.
+- [ ] Review Qdrant Cloud usage.
+- [ ] Review Gemini usage/cost.
+- [ ] Decide whether prompt changes are needed before LangGraph.
+- [ ] Decide whether retrieval tuning changes are needed before LangGraph.
+- [ ] Only start LangGraph/multi-agent work after this review.
 
 ## Later Improvements
 
 - [ ] Add reranking only if top 10 has good candidates but final answers are noisy.
 - [ ] Add hybrid sparse+dense search if exact Odia terms or names are missed.
 - [ ] Add chapter metadata later if chapter detection becomes available.
-- [ ] Move from local Qdrant to Qdrant Cloud after local ingestion is stable.
 - [ ] Add image/page references later for multimodal retrieval.
 - [ ] Build Tutor Agent after LearnAssist release 1 is stable.
 - [ ] Add voice interaction for Tutor Agent.

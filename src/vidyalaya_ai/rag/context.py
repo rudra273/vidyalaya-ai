@@ -26,7 +26,7 @@ def build_context_blocks(
         setup_rag_logging()
 
     config = config or RagConfig()
-    client = QdrantClient(url=config.qdrant_url)
+    client = QdrantClient(url=config.qdrant_url, api_key=config.qdrant_api_key)
     blocks: list[dict[str, Any]] = []
     seen_groups: set[tuple[str, int]] = set()
     seen_chunk_ids: set[str] = set()
