@@ -364,21 +364,24 @@ Failed cases: 0
 
 ## Phase 19: Backend Deployment Prep
 
-- [ ] Decide deployment target:
-  - Railway first choice for simple FastAPI deployment
-  - Render as backup
-- [ ] Add or verify production start command:
+- [x] Decide deployment target:
+  - Railway for Release 1
+- [x] Add or verify production start command:
   ```bash
   uvicorn vidyalaya_ai.api.app:app --host 0.0.0.0 --port $PORT
   ```
-- [ ] Add deployment dependency setup using `requirements.txt`.
-- [ ] Ensure `fastapi`, `uvicorn`, `qdrant-client`, `google-genai`, and `langchain-google-genai` are in requirements.
-- [ ] Ensure app imports work with `PYTHONPATH=src` or install package properly.
-- [ ] Add a deployment note/doc with required environment variables:
+- [x] Add Railway config:
+  ```text
+  railway.toml
+  ```
+- [x] Add deployment dependency setup using `requirements.txt`.
+- [x] Ensure `fastapi`, `uvicorn`, `qdrant-client`, `google-genai`, and `langchain-google-genai` are in requirements.
+- [x] Ensure app imports work with `PYTHONPATH=src`.
+- [x] Add a deployment note/doc with required environment variables:
   - `GOOGLE_API_KEY` or `GEMINI_API_KEY`
   - `QDRANT_URL`
   - `QDRANT_API_KEY`
-- [ ] Make sure no secrets are committed.
+- [x] Make sure no secrets are committed.
 
 ## Phase 20: Deploy Backend
 
