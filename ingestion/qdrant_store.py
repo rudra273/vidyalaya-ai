@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from typing import Any
 
@@ -18,12 +19,18 @@ FILTER_INDEXES = {
     "subject": PayloadSchemaType.KEYWORD,
     "book_id": PayloadSchemaType.KEYWORD,
     "page_no": PayloadSchemaType.INTEGER,
+    "chunk_index": PayloadSchemaType.INTEGER,
 }
 
 
-def make_qdrant_client(qdrant_url: str, qdrant_api_key: str | None = None) -> QdrantClient:
+def make_qdrant_client(
+    qdrant_url: str,
+    qdrant_api_key: str | None = None,
+    *,
+    timeout: int = 120,
+) -> QdrantClient:
     """Create a Qdrant client for local or cloud Qdrant."""
-    return QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+    return QdrantClient(url=qdrant_url, api_key=qdrant_api_key, timeout=timeout)
 
 
 def ensure_collection(
@@ -52,6 +59,7 @@ def upsert_embedded_chunks(
     collection_name: str,
     embedded_records: list[dict[str, Any]],
     batch_size: int = 64,
+    retry_wait_seconds: tuple[int, ...] = (2, 5, 10, 20, 40),
 ) -> int:
     """Upsert embedded chunks into Qdrant and return inserted point count."""
     inserted_count = 0
@@ -67,16 +75,48 @@ def upsert_embedded_chunks(
             for record in batch
         ]
 
-        client.upsert(
+        _upsert_points_with_retry(
+            client,
             collection_name=collection_name,
             points=points,
-            wait=True,
+            retry_wait_seconds=retry_wait_seconds,
         )
 
         inserted_count += len(points)
         logger.info("Upserted %s/%s points", inserted_count, len(embedded_records))
 
     return inserted_count
+
+
+def _upsert_points_with_retry(
+    client: QdrantClient,
+    *,
+    collection_name: str,
+    points: list[PointStruct],
+    retry_wait_seconds: tuple[int, ...],
+) -> None:
+    """Upsert points with retry for transient cloud/network failures."""
+    for attempt in range(len(retry_wait_seconds) + 1):
+        try:
+            client.upsert(
+                collection_name=collection_name,
+                points=points,
+                wait=True,
+            )
+            return
+        except Exception:
+            if attempt == len(retry_wait_seconds):
+                logger.exception("Qdrant upsert failed after retries")
+                raise
+
+            wait_seconds = retry_wait_seconds[attempt]
+            logger.warning(
+                "Qdrant upsert failed on attempt %s/%s. Waiting %ss before retry.",
+                attempt + 1,
+                len(retry_wait_seconds) + 1,
+                wait_seconds,
+            )
+            time.sleep(wait_seconds)
 
 
 def deterministic_point_id(chunk_id: str) -> str:
@@ -87,13 +127,18 @@ def deterministic_point_id(chunk_id: str) -> str:
 def _ensure_payload_indexes(client: QdrantClient, collection_name: str) -> None:
     """Create indexes for fields used in filters."""
     for field_name, field_schema in FILTER_INDEXES.items():
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name=field_name,
-            field_schema=field_schema,
-            wait=True,
-        )
-        logger.info("Ensured payload index: %s", field_name)
+        try:
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name=field_name,
+                field_schema=field_schema,
+                wait=True,
+            )
+            logger.info("Ensured payload index: %s", field_name)
+        except Exception as exc:
+            if "already exists" not in str(exc).lower():
+                raise
+            logger.info("Payload index already exists: %s", field_name)
 
 
 def _validate_collection_vector_size(

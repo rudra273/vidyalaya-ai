@@ -333,30 +333,34 @@ Failed cases: 0
 
 ## Phase 18: Upload Existing Embeddings To Qdrant Cloud
 
-- [ ] Confirm class 8 embedding JSONL files exist under:
+- [x] Confirm class 8 embedding JSONL files exist under:
   ```text
   data/processed/embeddings/scert_odisha/class_8
   ```
-- [ ] Create/reuse the cloud collection:
+- [x] Create/reuse the cloud collection:
   ```text
   vidyalaya_textbook_chunks
   ```
-- [ ] Use vector size `1536` and cosine distance.
-- [ ] Create payload indexes:
+- [x] Use vector size `1536` and cosine distance.
+- [x] Create payload indexes:
   - board
   - class
   - subject
   - book_id
   - page_no
-- [ ] Upsert existing embedded chunks into Qdrant Cloud.
-- [ ] Use deterministic point IDs so reruns update, not duplicate.
-- [ ] Log uploaded count per subject.
-- [ ] Validate cloud collection count.
-- [ ] Run a cloud query test for:
+  - chunk_index
+- [x] Upsert existing embedded chunks into Qdrant Cloud.
+- [x] Use deterministic point IDs so reruns update, not duplicate.
+- [x] Log uploaded count per subject.
+- [x] Validate cloud collection count:
+  ```text
+  1468
+  ```
+- [x] Run a cloud query test for:
   - subject provided
   - subject missing
   - Odia query
-- [ ] Compare one cloud result with local result.
+- [x] Skip local comparison because local Qdrant was removed; cloud results match expected pages from previous evaluation.
 
 ## Phase 19: Backend Deployment Prep
 
