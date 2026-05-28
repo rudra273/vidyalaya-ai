@@ -1,17 +1,10 @@
-"""Request and response schemas for the Vidyalaya AI API."""
+"""LearnAssist schemas."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
-
-
-class HealthResponse(BaseModel):
-    """Health check response."""
-
-    status: str = "ok"
-    service: str = "vidyalaya-ai"
 
 
 class LearnAssistChatRequest(BaseModel):
@@ -35,19 +28,6 @@ class LearnAssistChatRequest(BaseModel):
 
         cleaned = value.strip()
         return cleaned or None
-
-
-class ErrorDetail(BaseModel):
-    """API error body."""
-
-    code: str
-    message: str
-
-
-class ErrorResponse(BaseModel):
-    """API error response."""
-
-    error: ErrorDetail
 
 
 class LearnAssistChatResponse(BaseModel):

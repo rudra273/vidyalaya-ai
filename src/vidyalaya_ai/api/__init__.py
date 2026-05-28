@@ -1,4 +1,4 @@
-"""FastAPI app for Vidyalaya AI."""
+"""FastAPI app package for Vidyalaya AI."""
 
 from vidyalaya_ai.api.app import app, create_app
 

@@ -7,7 +7,7 @@ Deploy only the FastAPI backend from this repository.
 The repository can contain OCR, ingestion, and data folders, but Railway should start only:
 
 ```text
-vidyalaya_ai.api.app:app
+vidyalaya_ai.main:app
 ```
 
 ## Railway Settings
@@ -21,7 +21,7 @@ Nixpacks
 Start command:
 
 ```bash
-PYTHONPATH=src uvicorn vidyalaya_ai.api.app:app --host 0.0.0.0 --port $PORT
+PYTHONPATH=src uvicorn vidyalaya_ai.main:app --host 0.0.0.0 --port $PORT
 ```
 
 The same command is already configured in:
@@ -38,6 +38,7 @@ Set these in Railway Variables:
 QDRANT_URL=<your-qdrant-cloud-url>
 QDRANT_API_KEY=<your-qdrant-cloud-api-key>
 GEMINI_API_KEY=<your-gemini-api-key>
+FIREBASE_SERVICE_ACCOUNT_JSON_BASE64=<base64-encoded-firebase-service-account-json>
 ```
 
 Optional:
@@ -73,9 +74,25 @@ Expected response:
 
 ## Test Request
 
+Public health check:
+
+```bash
+curl "https://<railway-domain>/health"
+```
+
+Authenticated user check:
+
+```bash
+curl "https://<railway-domain>/auth/me" \
+  -H "Authorization: Bearer <firebase-id-token>"
+```
+
+Authenticated chat request:
+
 ```bash
 curl -X POST "https://<railway-domain>/learnassist/chat" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <firebase-id-token>" \
   -d '{
     "query": "Who was Major Somnath Sharma?",
     "board": "scert_odisha",
@@ -89,6 +106,11 @@ curl -X POST "https://<railway-domain>/learnassist/chat" \
 ## Notes
 
 - Do not upload `.env` to GitHub.
+- Do not commit Firebase service account JSON.
+- Create the Firebase base64 value locally with:
+  ```bash
+  base64 -i service-account.json | tr -d '\n'
+  ```
 - OCR/data files are not needed at runtime because retrieval uses Qdrant Cloud.
 - Existing embedding files are only for rebuilding Qdrant Cloud if needed.
 - Qdrant Cloud must already contain the uploaded collection before deployment testing.

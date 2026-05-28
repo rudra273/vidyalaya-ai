@@ -1,437 +1,448 @@
-# RAG Ingestion Tasks
+# Vidyalaya AI Roadmap
 
-Goal: build the first production-ready ingestion and query flow for OCR textbook JSONL files using Qdrant and Gemini Embedding 2.
+Goal: scale the working Release 1 system into a reliable student learning app.
 
-## Fixed Decisions
-
-- Vector DB: Qdrant
-- Embedding model: Gemini Embedding 2 (`gemini-embedding-2`)
-- Embedding dimension: 1536
-- Input source: OCR JSONL files
-- Main filters: board, class, subject
-- Retrieval V1: Qdrant top 10
-- Reranker V1: skip
-- Context strategy: merge and expand nearby chunks before sending to the LLM
-- Ingestion style: staged by board, class, and subject as books become ready
-- Point IDs: deterministic, never random, so repeated ingestion can safely update existing chunks
-- Gemini SDK usage: embeddings only, never LLM answering or agent orchestration
-- LLM/agent layer: use LangChain-compatible LLM calls and LangGraph later for orchestration so the answer model can change
-- Client/API owns trusted filters: query, board, class_no, subject optional
-- Tools own internal retrieval tuning: top_k, context blocks, neighbor expansion, max context chars
-- Agents decide when tools are needed; agents should not blindly retrieve every turn
-
-## Current Input Format
-
-Each JSONL row should contain:
-
-```json
-{
-  "board": "scert_odisha",
-  "class": 8,
-  "subject": "english",
-  "book_name": "Jasmine",
-  "book_id": "scert_odisha_class_8_english_jasmine",
-  "language": "en",
-  "source_pdf": "English_Jasmine.pdf",
-  "page_no": 1,
-  "text": "..."
-}
-```
-
-## Phase 1: Local Qdrant Check
-
-- [x] Start local Qdrant with Docker Compose.
-- [x] Confirm Qdrant dashboard opens at `http://localhost:6333/dashboard`.
-- [x] Confirm API is reachable at `http://localhost:6333`.
-- [x] Create one small test collection.
-- [x] Insert one test point with a fake 1536-dim vector and metadata.
-- [x] Query that one test point.
-- [x] Delete the test collection.
-
-## Phase 2: Ingestion Folder Structure
-
-- [x] Create ingestion code folder.
-- [x] Add a config section for local paths, model name, embedding dimension, Qdrant URL, and collection name.
-- [x] Add environment loading for `GEMINI_API_KEY`.
-- [x] Keep the code simple and runnable from one main file.
-- [x] Keep board, class, and subject configurable for staged ingestion.
-
-Suggested files:
+Current working path:
 
 ```text
-ingestion/
-  loader.py
-  chunk.py
-  embed.py
-  qdrant_store.py
-  main.py
-  query.py
+Android app
+-> Railway FastAPI backend
+-> LearnAssist agent
+-> retrieve_textbook tool
+-> Qdrant Cloud
+-> Gemini Embedding 2 retrieval
+-> Gemini/LangChain answer
 ```
 
-## Phase 3: JSONL Loader
+## Release 1 Complete
 
-- [x] Read one JSONL file from `data/processed/ocr/scert_odisha/class_8/jsonl`.
-- [x] Validate required fields.
-- [x] Skip empty pages.
-- [x] Print count of pages loaded.
-- [x] Do not modify OCR output files.
-
-## Phase 4: Chunking
-
-- [x] Implement page-aware chunking.
-- [x] Split text by paragraph/newline first.
-- [x] Fall back to line or character splitting only when a block is too large.
-- [x] Keep chunks inside one page.
-- [x] Target chunk size: 1500-2200 characters.
-- [x] Hard max chunk size: 3000 characters.
-- [x] Overlap: 250-400 characters.
-- [x] Merge very small chunks below 300-500 characters when possible.
-- [x] Store chunk metadata.
-
-Each chunk should contain:
-
-```json
-{
-  "chunk_id": "scert_odisha_class_8_english_jasmine_p0001_c0001",
-  "board": "scert_odisha",
-  "class": 8,
-  "subject": "english",
-  "book_name": "Jasmine",
-  "book_id": "scert_odisha_class_8_english_jasmine",
-  "language": "en",
-  "source_pdf": "English_Jasmine.pdf",
-  "page_no": 1,
-  "chunk_index": 1,
-  "text": "..."
-}
-```
-
-## Phase 5: Gemini Embeddings
-
-- [x] Install and configure Gemini SDK.
-- [x] Implement document chunk embedding with Gemini Embedding 2.
-- [x] Use 1536 output dimensions.
-- [x] Add a document instruction before chunk text.
-- [x] Batch requests where possible.
-- [x] Save progress locally so ingestion can resume if interrupted.
-- [x] Print progress logs while embedding.
-
-Document embedding text format:
-
-```text
-Represent this textbook passage for retrieval.
-
-Board: scert_odisha
-Class: 8
-Subject: english
-Book: Jasmine
-Page: 1
-
-<chunk text>
-```
-
-## Phase 6: Qdrant Collection
-
-- [x] Create Qdrant collection with vector size 1536 and cosine distance.
-- [x] Add payload indexes for common filters:
+- [x] OCR pipeline selected: Surya OCR.
+- [x] Class 8 textbooks OCR completed.
+- [x] Class 8 OCR converted to clean JSONL/MD.
+- [x] JSONL metadata standardized:
   - board
   - class
   - subject
+  - book_name
   - book_id
+  - language
+  - source_pdf
   - page_no
-- [x] Use deterministic point IDs from chunk IDs, not random UUIDs.
-- [x] Upsert chunks with vectors and payload.
-- [x] Store text inside payload for V1.
-- [x] Print inserted point count.
-
-## Phase 7: First Real Ingestion
-
-- [x] Ingest one subject JSONL first.
-- [x] Check collection count.
-- [x] Query using board, class, and subject filters.
-- [x] Inspect top 10 results manually.
-- [x] Confirm page numbers and text look correct.
-- [x] Then ingest all class 8 subjects.
-- [ ] Later ingest class 9, class 10, and other classes into the same collection by changing config.
-- [x] Re-running the same subject should update existing points, not duplicate them.
-
-## Phase 8: Query Flow V1
-
-- [x] Accept student query.
-- [x] Accept filters: board, class, subject.
-- [x] Embed query with Gemini Embedding 2 at 1536 dimensions.
-- [x] Search Qdrant with top 10.
-- [x] Return score, subject, book, page, chunk id, and text preview.
-- [x] Keep Gemini SDK isolated to query embeddings only.
-
-Query embedding text format:
-
-```text
-Represent this student question for retrieving relevant textbook passages.
-
-<student query>
-```
-
-## Phase 9: Merge And Expand Context
-
-- [x] Group top 10 hits by book_id and page_no.
-- [x] For strong hits, fetch nearby chunks from the same page:
-  - previous chunk
-  - matched chunk
-  - next chunk
-- [x] Optionally fetch previous or next page only when needed.
-- [x] Merge expanded chunks in page order.
-- [x] Keep final context to 2-4 blocks.
-- [x] Include citation metadata for each block.
-- [x] Keep merge/expand behavior configurable.
-
-Config knobs:
-
-```python
-final_context_blocks = 4
-neighbor_chunk_window = 1
-neighbor_page_window = 0
-max_context_chars = 6000
-dedupe_context_chunks = True
-```
-
-Final context block shape:
-
-```json
-{
-  "book_name": "Jasmine",
-  "source_pdf": "English_Jasmine.pdf",
-  "page_no": 12,
-  "score": 0.81,
-  "text": "..."
-}
-```
-
-## Phase 10: Answer Generation Direction
-
-- [x] Use LangChain-compatible LLM calls, not direct Gemini SDK.
-- [x] Keep the final answer model configurable through the LLM provider layer.
-- [x] Do not keep answer prompts or system prompts in the `llm/` folder.
-- [x] Let agents own final answer behavior, citation rules, and fallback wording.
-- [x] Keep Gemini SDK usage limited to embeddings only.
-
-## Phase 11: Basic Evaluation
-
-- [x] Create 10-20 test questions from class 8 books.
-- [x] Track whether top 10 contains the correct page.
-- [x] Track whether final 2-4 context blocks are useful.
-- [x] Track bad cases:
-  - wrong subject
-  - right subject but wrong chapter/page
-  - OCR text issue
-  - chunk too small
-  - chunk too large
-- [x] Tune chunk size and overlap only after checking failures.
-
-Latest basic evaluation:
-
-```text
-Report: reports/rag_eval_class8.jsonl
-Total cases: 14
-Top-10 expected page pass: 14/14
-Final context expected page pass: 14/14
-Failed cases: 0
-```
-
-## Phase 12: Retrieve Textbook Tool
-
-- [x] Create `src/vidyalaya_ai/tools/retrieve_textbook.py`.
-- [x] Create a small config object for server-side tool tuning:
-  - top_k
-  - context_blocks
-  - neighbor_chunk_window
-  - neighbor_page_window
-  - max_context_chars
-- [x] Implement `retrieve_textbook(query, board, class_no, subject=None)`.
-- [x] Use client/API-provided board, class, and optional subject.
-- [x] Do not let student/client control internal retrieval tuning in MVP.
-- [x] Call existing `retrieve_chunks()` and `build_context_blocks()`.
-- [x] Return context blocks, raw hits, and metadata.
-- [x] Include subjects found, pages found, top score, and context block count.
-- [x] Add logging.
-- [x] Add a simple local test for:
-  - subject provided
-  - subject missing
-  - cross-subject retrieval
-
-## Phase 13: LLM Provider Setup
-
-- [x] Remove generic answer/prompt code from the LLM folder.
-- [x] Create `src/vidyalaya_ai/llm/config.py`.
-- [x] Create `src/vidyalaya_ai/llm/factory.py`.
-- [x] Create provider module `src/vidyalaya_ai/llm/providers/google.py`.
-- [x] Keep provider/model/temperature/max tokens configurable.
-- [x] Return LangChain-compatible chat model objects.
-- [x] Do not place agent prompts in the LLM folder.
-- [x] Keep Gemini SDK out of answer generation.
-- [x] Support at least one provider first, then add more later.
-
-## Phase 14: LearnAssist Agent
-
-- [x] Rename backend concept from Doubt Solver to LearnAssist.
-- [x] Create LearnAssist agent implementation.
-- [x] Agent receives query and client/API filters from state.
-- [x] Agent decides whether `retrieve_textbook` is needed.
-- [x] Agent reuses existing conversation context when enough.
-- [x] Agent calls `retrieve_textbook` for new textbook questions.
-- [x] Agent builds its own prompt/messages and calls the configured LLM.
-- [x] Agent returns answer, citations, and retrieval metadata.
-- [x] Keep implementation simple before adding LangGraph complexity.
-
-## Phase 15: Release 1 API Design
-
-- [x] Design one LearnAssist chat endpoint for Postman testing.
-- [x] Keep the API request close to the agent input:
-  - query
-  - board
-  - class_no
-  - subject optional
-  - language optional
-- [x] Keep retrieval tuning server-side.
-- [x] Define response shape with:
-  - answer
-  - citations
-  - retrieval metadata
-  - optional context blocks for debugging
-- [x] Decide error response shape for bad input and service failures.
-
-## Phase 16: Release 1 API Implementation
-
-- [x] Add FastAPI app under `src/vidyalaya_ai/api`.
-- [x] Add request/response schemas.
-- [x] Add `/health` endpoint.
-- [x] Add `/learnassist/chat` endpoint.
-- [x] Wire endpoint to `answer_with_learnassist()`.
-- [x] Add API logging.
-- [x] Add local run command for development:
-  ```bash
-  PYTHONPATH=src .venv/bin/uvicorn vidyalaya_ai.api.app:app --reload --port 8000
-  ```
-
-## Phase 17: Prepare Qdrant Cloud
-
-- [x] Create a Qdrant Cloud account.
-- [x] Create one free or starter cluster.
-- [x] Create a Qdrant API key.
-- [x] Copy the Qdrant Cloud URL.
-- [x] Add local `.env` values:
+  - text
+- [x] Page-aware chunking implemented.
+- [x] Gemini Embedding 2 selected.
+- [x] Embedding dimension fixed at 1536.
+- [x] Class 8 embeddings generated and saved locally.
+- [x] Qdrant selected as vector DB.
+- [x] Deterministic point IDs implemented.
+- [x] Qdrant Cloud created and configured.
+- [x] Class 8 embeddings uploaded to Qdrant Cloud.
+- [x] Qdrant Cloud collection count validated:
   ```text
-  QDRANT_URL=<cloud-qdrant-url>
-  QDRANT_API_KEY=<cloud-qdrant-api-key>
+  1468
   ```
-- [x] Update Qdrant client config to read `QDRANT_URL` and `QDRANT_API_KEY`.
-- [x] Validate connection with a small cloud health/count script:
-  ```bash
-  .venv/bin/python ingestion/validate_qdrant_cloud.py
-  ```
-- [x] Do not delete local Qdrant yet.
-
-## Phase 18: Upload Existing Embeddings To Qdrant Cloud
-
-- [x] Confirm class 8 embedding JSONL files exist under:
-  ```text
-  data/processed/embeddings/scert_odisha/class_8
-  ```
-- [x] Create/reuse the cloud collection:
-  ```text
-  vidyalaya_textbook_chunks
-  ```
-- [x] Use vector size `1536` and cosine distance.
-- [x] Create payload indexes:
+- [x] Qdrant payload indexes created:
   - board
   - class
   - subject
   - book_id
   - page_no
   - chunk_index
-- [x] Upsert existing embedded chunks into Qdrant Cloud.
-- [x] Use deterministic point IDs so reruns update, not duplicate.
-- [x] Log uploaded count per subject.
-- [x] Validate cloud collection count:
+- [x] Retrieval supports:
+  - board filter
+  - class filter
+  - optional subject filter
+  - subject discovery when subject is missing
+- [x] Context merge/expand implemented.
+- [x] Basic RAG evaluation passed:
   ```text
-  1468
+  Report: reports/rag_eval_class8.jsonl
+  Total cases: 14
+  Top-10 expected page pass: 14/14
+  Final context expected page pass: 14/14
+  Failed cases: 0
   ```
-- [x] Run a cloud query test for:
-  - subject provided
-  - subject missing
-  - Odia query
-- [x] Skip local comparison because local Qdrant was removed; cloud results match expected pages from previous evaluation.
+- [x] `retrieve_textbook` tool implemented.
+- [x] LLM provider layer implemented.
+- [x] Gemini chat model wired through LangChain.
+- [x] Direct Gemini SDK kept for embeddings only.
+- [x] LearnAssist agent implemented.
+- [x] FastAPI backend implemented.
+- [x] API endpoints implemented:
+  - `GET /health`
+  - `POST /learnassist/chat`
+- [x] Railway deployment config added.
+- [x] Railway backend deployed.
+- [x] Swagger UI validation completed.
+- [x] Android app integration completed.
+- [x] Android app can call backend and receive answers using Qdrant context.
 
-## Phase 19: Backend Deployment Prep
+## Fixed Decisions
 
-- [x] Decide deployment target:
-  - Railway for Release 1
-- [x] Add or verify production start command:
-  ```bash
-  uvicorn vidyalaya_ai.api.app:app --host 0.0.0.0 --port $PORT
-  ```
-- [x] Add Railway config:
+- Vector DB: Qdrant Cloud.
+- Embedding model: Gemini Embedding 2 (`gemini-embedding-2`).
+- Embedding dimension: 1536.
+- LLM calls: LangChain-compatible provider layer.
+- Current deployed agent: LearnAssist.
+- Current deployed app backend: FastAPI on Railway.
+- Current indexed class: Class 8 only.
+- Current board: `scert_odisha`.
+- Retrieval tuning is server-side, not Android-controlled.
+- Auth direction: Google SSO in Android through Firebase Auth; backend verifies Firebase ID token.
+- Chat thread naming: use `thread_id`, not `conversation_id`.
+- Android sends trusted filters:
+  - query
+  - board
+  - class_no
+  - subject optional
+  - language optional
+
+## Current Gaps
+
+- [ ] No persistent chat history.
+- [ ] Railway auth redeploy validation is pending.
+- [ ] No user profiles.
+- [ ] No rate limiting.
+- [ ] No streaming response.
+- [ ] No LangGraph orchestration yet.
+- [ ] No Tutor Agent implementation yet.
+- [ ] Only class 8 is indexed.
+- [ ] No automated deployed API regression test.
+- [ ] No production monitoring/alerting.
+- [ ] No cost/usage dashboard for Gemini and Qdrant.
+- [ ] No admin tool to reingest or validate new classes.
+
+## Recommended Next Order
+
+Do not jump to LangGraph or multi-agent first.
+
+The next safest order is:
+
+1. Stabilize the live Release 1 API.
+2. Add Google SSO auth and trusted user identity.
+3. Define `thread_id` and message ownership.
+4. Add backend conversation storage.
+5. Add classes 6, 7, 9, and 10 to RAG.
+6. Add streaming responses.
+7. Then introduce LangGraph if the agent flow needs memory/tools/state.
+8. Then build Tutor Agent.
+
+Reason: scaling the data and app reliability will teach us more than adding agent complexity now.
+
+## Phase 24: Release 1 Stabilization
+
+- [ ] Collect 20-50 real Android questions.
+- [ ] Save failures manually with:
+  - query
+  - subject selected or missing
+  - expected answer
+  - actual answer
+  - citations
+  - latency
+- [ ] Check Railway logs for errors.
+- [ ] Check Qdrant Cloud usage.
+- [ ] Check Gemini usage.
+- [ ] Identify repeated failure types:
+  - wrong subject
+  - correct subject but weak context
+  - answer too long
+  - answer too short
+  - citation missing
+  - Odia language issue
+  - Android rendering issue
+- [ ] Tune prompt only if repeated failures show a pattern.
+- [ ] Tune retrieval only if repeated failures show a pattern.
+
+## Phase 25: Firebase Auth For Google SSO
+
+Decision: use Google login from Android through Firebase Auth.
+
+Implemented backend flow:
+
+```text
+Android Google Sign-In through Firebase
+-> Android receives Firebase ID token
+-> Android sends Authorization: Bearer <firebase_id_token>
+-> FastAPI verifies token with Firebase Admin SDK
+-> backend extracts stable Firebase uid
+-> backend uses that as authenticated user identity
+```
+
+Do not trust `email`, `name`, or `user_id` sent directly from Android body. The backend should trust only the verified Firebase token.
+
+Backend user identity shape:
+
+```json
+{
+  "user_id": "firebase_uid",
+  "email": "student@example.com",
+  "name": "Student Name"
+}
+```
+
+Temporary internal user ID:
+
+```text
+firebase_uid
+```
+
+Later, when MongoDB is added, map Firebase identity to an internal UUID.
+
+### Backend Tasks
+
+- [x] Add Firebase Admin SDK dependency.
+- [x] Add Firebase auth config.
+- [x] Add environment variable:
   ```text
-  railway.toml
+  FIREBASE_SERVICE_ACCOUNT_JSON_BASE64=<base64-encoded-service-account-json>
   ```
-- [x] Add deployment dependency setup using `requirements.txt`.
-- [x] Ensure `fastapi`, `uvicorn`, `qdrant-client`, `google-genai`, and `langchain-google-genai` are in requirements.
-- [x] Ensure app imports work with `PYTHONPATH=src`.
-- [x] Add a deployment note/doc with required environment variables:
-  - `GOOGLE_API_KEY` or `GEMINI_API_KEY`
-  - `QDRANT_URL`
-  - `QDRANT_API_KEY`
-- [x] Make sure no secrets are committed.
+- [x] Add auth helper under `src/vidyalaya_ai/auth`.
+- [x] Verify Firebase ID token on backend.
+- [x] Extract user identity from token.
+- [x] Add FastAPI dependency for authenticated user.
+- [x] Keep `/health` public.
+- [x] Add protected `/auth/me`.
+- [x] Protect `/learnassist/chat`.
+- [x] Return `401` for missing/invalid token.
+- [x] Do not accept user identity in chat request body.
+- [x] Refactor FastAPI into routers/schemas/dependencies.
+- [x] Move deployment entrypoint to `vidyalaya_ai.main:app`.
+- [x] Update Railway start command.
+- [x] Update Railway deployment docs.
+- [ ] Add Firebase service account variable in Railway.
+- [ ] Redeploy Railway backend.
+- [ ] Validate `/auth/me` with a real Flutter Firebase token.
+- [ ] Validate `/learnassist/chat` with a real Flutter Firebase token.
 
-## Phase 20: Deploy Backend
+### Android Tasks
 
-- [ ] Create Railway or Render service from the repository.
-- [ ] Set build/install command if needed.
-- [ ] Set start command.
-- [ ] Add environment variables.
-- [ ] Deploy the backend.
-- [ ] Open deployed `/health`.
-- [ ] Check deployment logs.
-- [ ] Fix import/env issues if deployment fails.
+- [x] Add Google Sign-In.
+- [x] Configure Firebase project for Android.
+- [x] Add Firebase/Google sign-in Flutter packages.
+- [x] Get Firebase ID token after login.
+- [ ] Store token in memory or secure storage.
+- [ ] Add header to protected API calls:
+  ```http
+  Authorization: Bearer <firebase_id_token>
+  ```
+- [ ] On `401`, ask user to sign in again.
+- [ ] Keep `/health` call unauthenticated.
+- [ ] Do not send fake user ID in request body.
+- [ ] Continue sending:
+  - query
+  - board
+  - class_no
+  - subject optional
+  - language optional
 
-## Phase 21: Validate Deployed API
+### Tradeoffs
 
-- [ ] Test deployed `/health`.
-- [ ] Test deployed `/learnassist/chat` with subject provided.
-- [ ] Test deployed `/learnassist/chat` with subject missing.
-- [ ] Test Odia query.
-- [ ] Test general/non-textbook query.
-- [ ] Verify `debug=false` does not return context blocks.
-- [ ] Verify `debug=true` returns context blocks.
-- [ ] Check answer latency.
-- [ ] Check backend logs.
-- [ ] Confirm Qdrant Cloud is receiving search traffic.
+Pros:
 
-## Phase 22: Android App Integration
+- low login friction
+- no password storage
+- Android-friendly
+- stable user identity
+- good foundation for chat history
 
-- [ ] Add backend base URL in Android config.
-- [ ] Connect Android app to deployed `/health`.
-- [ ] Connect Android app to `/learnassist/chat`.
-- [ ] Send `query`, `board`, `class_no`, optional `subject`, optional `language`.
-- [ ] Render `answer`.
-- [ ] Render citations when present.
-- [ ] Hide debug/context blocks in normal UI.
-- [ ] Test English query.
-- [ ] Test Odia query and font rendering.
-- [ ] Test subject missing.
-- [ ] Test slow response/loading state.
-- [ ] Test network error state.
-- [ ] Collect 10-20 real student questions and note failures.
+Cons:
 
-## Phase 23: Release 1 Deployment Review
+- depends on Google
+- some students may use parent/school accounts
+- backend token verification is required
+- privacy/consent still matters for minors
 
-- [ ] Review answer quality from Android tests.
-- [ ] Review latency from Android tests.
-- [ ] Review Qdrant Cloud usage.
-- [ ] Review Gemini usage/cost.
-- [ ] Decide whether prompt changes are needed before LangGraph.
-- [ ] Decide whether retrieval tuning changes are needed before LangGraph.
-- [ ] Only start LangGraph/multi-agent work after this review.
+## Phase 26: Thread And Chat History Decision
+
+Decision needed: where to store chat history.
+
+Recommended path:
+
+- MVP now: Android keeps short local session history for UI only.
+- Next backend version: store chat history in MongoDB.
+
+Why MongoDB later:
+
+- conversation data is document-shaped
+- easy to store messages, citations, metadata, timestamps
+- works well with user/session IDs
+- easier than forcing chat data into SQL early
+
+Do not use Qdrant for chat history. Qdrant is for retrieval vectors, not primary conversation storage.
+
+Tasks:
+
+- [ ] Decide chat history owner for next release:
+  - Android-only temporary history
+  - backend MongoDB persistent history
+- [ ] Define `thread_id`.
+- [ ] Define `user_id`.
+- [ ] Define message schema:
+  - role
+  - text
+  - citations
+  - retrieval metadata
+  - created_at
+- [ ] Decide how much history to send back into the LLM.
+- [ ] Decide retention policy.
+
+## Phase 27: Add More Classes To RAG
+
+This should happen before Tutor Agent.
+
+Priority:
+
+1. Class 10
+2. Class 9
+3. Class 7
+4. Class 6
+
+Reason: class 9/10 likely has higher immediate academic value.
+
+Tasks per class:
+
+- [ ] Run OCR.
+- [ ] Convert raw OCR to JSONL with final metadata.
+- [ ] Validate 10-20 pages manually.
+- [ ] Chunk pages.
+- [ ] Generate Gemini embeddings.
+- [ ] Upload embeddings to Qdrant Cloud.
+- [ ] Validate collection count.
+- [ ] Run 10-20 retrieval test questions.
+- [ ] Add evaluation report.
+- [ ] Test Android query with that class.
+
+Collection strategy:
+
+- Keep the same Qdrant collection.
+- Use metadata filters:
+  - board
+  - class
+  - subject
+  - book_id
+
+## Phase 28: Streaming Response
+
+Do this after Android API is stable.
+
+Benefits:
+
+- better perceived latency
+- answer starts appearing while model is still generating
+
+Risks:
+
+- Android integration is more complex
+- Railway/proxy behavior needs testing
+- error handling is harder
+
+Tasks:
+
+- [ ] Decide streaming protocol:
+  - Server-Sent Events first
+  - WebSocket later only if needed
+- [ ] Add `/learnassist/chat/stream`.
+- [ ] Stream tokens from LangChain model.
+- [ ] Keep non-streaming endpoint as fallback.
+- [ ] Add Android streaming UI.
+- [ ] Test disconnects and retries.
+
+## Phase 29: LangGraph Decision
+
+Do not add LangGraph just because it exists.
+
+Add LangGraph when one of these becomes true:
+
+- agent needs multi-step tool decisions
+- agent needs durable conversation state
+- agent needs memory summarization
+- agent needs retries/fallback branches
+- Tutor Agent needs topic progression
+- multiple agents need routing
+
+Possible first LangGraph graph:
+
+```text
+receive query
+-> inspect state
+-> decide retrieval needed
+-> retrieve textbook if needed
+-> answer
+-> save conversation
+```
+
+Tasks:
+
+- [ ] Install LangGraph.
+- [ ] Define state schema.
+- [ ] Convert LearnAssist flow to graph nodes.
+- [ ] Add checkpointing only after storage decision.
+- [ ] Keep existing FastAPI endpoint stable.
+- [ ] Regression-test old API behavior.
+
+## Phase 30: Tutor Agent
+
+Build after:
+
+- auth exists
+- chat history exists
+- more classes are indexed
+- LearnAssist is stable
+
+Tutor Agent should teach over time, not just answer one question.
+
+Future capabilities:
+
+- subject journey
+- topic progression
+- student level tracking
+- short explanations
+- check questions
+- hints
+- feedback
+- revision mode
+- voice interaction later
+
+Tasks:
+
+- [ ] Define Tutor Agent state.
+- [ ] Define topic/session model.
+- [ ] Define progress tracking.
+- [ ] Define teaching prompt.
+- [ ] Define check-question flow.
+- [ ] Decide how it uses textbook retrieval.
+- [ ] Add Android UI for tutor mode.
+
+## Phase 31: Monitoring And Operations
+
+This is easy to skip, but it matters once real users test.
+
+Tasks:
+
+- [ ] Add request IDs.
+- [ ] Log latency per request.
+- [ ] Log retrieval top score and subjects found.
+- [ ] Log LLM errors separately from retrieval errors.
+- [ ] Add simple `/version` endpoint.
+- [ ] Add deployed API smoke test script.
+- [ ] Add alerting for repeated 500 errors.
+- [ ] Track Gemini usage.
+- [ ] Track Qdrant usage.
+- [ ] Backup embedding files and OCR JSONL.
+
+## What We Might Be Skipping
+
+- Privacy policy for student data.
+- Terms/consent if storing chat history.
+- Abuse prevention and rate limits.
+- Cost controls for Gemini calls.
+- Prompt injection protection.
+- Admin dashboard for ingestion status.
+- Automated tests for deployed API.
+- Android offline/error states.
+- OCR quality audit for future classes.
+- Dataset/version tracking for each uploaded class.
+- Migration plan from Railway to Oracle Free Tier.
 
 ## Later Improvements
 
@@ -439,5 +450,4 @@ Failed cases: 0
 - [ ] Add hybrid sparse+dense search if exact Odia terms or names are missed.
 - [ ] Add chapter metadata later if chapter detection becomes available.
 - [ ] Add image/page references later for multimodal retrieval.
-- [ ] Build Tutor Agent after LearnAssist release 1 is stable.
 - [ ] Add voice interaction for Tutor Agent.

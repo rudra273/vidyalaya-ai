@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Release 1 exposes only the LearnAssist agent through a small FastAPI API.
+Release 1 exposes the LearnAssist agent through a small FastAPI API.
 
-The goal is to test the full flow in Postman:
+The goal is to test the full flow from Android, Swagger, or curl:
 
 ```text
 client request
@@ -17,6 +17,14 @@ client request
 
 Tutor Agent is future work and should not be included in Release 1.
 
+Authentication uses Firebase Auth on the client. The backend does not perform Google login. Android sends a Firebase ID token:
+
+```http
+Authorization: Bearer <firebase_id_token>
+```
+
+FastAPI verifies that token with Firebase Admin SDK.
+
 ## Endpoints
 
 ### Health
@@ -24,6 +32,8 @@ Tutor Agent is future work and should not be included in Release 1.
 ```http
 GET /health
 ```
+
+Public endpoint. No token is required.
 
 Response:
 
@@ -34,10 +44,38 @@ Response:
 }
 ```
 
+### Auth Me
+
+```http
+GET /auth/me
+```
+
+Protected endpoint. Requires:
+
+```http
+Authorization: Bearer <firebase_id_token>
+```
+
+Response:
+
+```json
+{
+  "user_id": "firebase_uid",
+  "email": "student@example.com",
+  "name": "Student Name"
+}
+```
+
 ### LearnAssist Chat
 
 ```http
 POST /learnassist/chat
+```
+
+Protected endpoint. Requires:
+
+```http
+Authorization: Bearer <firebase_id_token>
 ```
 
 Request:
@@ -79,6 +117,8 @@ debug
 - `debug` controls whether context blocks are returned.
 
 Retrieval tuning stays server-side. The API should not accept `top_k`, `context_blocks`, chunk window, or max context chars in Release 1.
+
+The API should not accept `user_id`, `email`, or `name` in the chat body. User identity comes only from the verified Firebase token.
 
 ## Success Response
 
@@ -160,31 +200,70 @@ Service error:
 }
 ```
 
-## Implementation Files
-
-Suggested structure:
-
-```text
-src/vidyalaya_ai/api/
-  __init__.py
-  app.py
-  schemas.py
-  logging_config.py
-```
-
-## Postman Test Requests
-
-Subject provided:
+Unauthorized:
 
 ```json
 {
-  "query": "Who was Major Somnath Sharma?",
-  "board": "scert_odisha",
-  "class_no": 8,
-  "subject": "english",
-  "language": "en",
-  "debug": true
+  "error": {
+    "code": "unauthorized",
+    "message": "Missing bearer token."
+  }
 }
+```
+
+## Implementation Files
+
+Current structure:
+
+```text
+src/vidyalaya_ai/
+  main.py
+  api/
+    __init__.py
+    app.py
+    dependencies.py
+    exceptions.py
+    logging_config.py
+    routers/
+      __init__.py
+      health.py
+      learnassist.py
+      auth.py
+    schemas/
+      __init__.py
+      common.py
+      learnassist.py
+      auth.py
+  auth/
+    __init__.py
+    config.py
+    firebase.py
+    models.py
+```
+
+## Test Requests
+
+Auth me:
+
+```bash
+curl "https://<domain>/auth/me" \
+  -H "Authorization: Bearer <firebase_id_token>"
+```
+
+Subject provided:
+
+```bash
+curl -X POST "https://<domain>/learnassist/chat" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <firebase_id_token>" \
+  -d '{
+    "query": "Who was Major Somnath Sharma?",
+    "board": "scert_odisha",
+    "class_no": 8,
+    "subject": "english",
+    "language": "en",
+    "debug": true
+  }'
 ```
 
 Subject missing:
