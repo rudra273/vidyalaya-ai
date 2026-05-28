@@ -60,6 +60,7 @@ def _user_from_decoded_token(decoded_token: dict[str, Any]) -> AuthenticatedUser
 
     return AuthenticatedUser(
         user_id=str(uid),
+        firebase_uid=str(uid),
         email=decoded_token.get("email"),
         name=decoded_token.get("name"),
     )

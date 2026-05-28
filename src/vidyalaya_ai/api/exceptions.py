@@ -9,6 +9,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from vidyalaya_ai.quota.exceptions import QuotaExceeded
+
 
 logger = logging.getLogger("vidyalaya_ai.api")
 
@@ -49,6 +51,26 @@ async def request_validation_error_handler(
     return JSONResponse(
         status_code=400,
         content={"error": {"code": "bad_request", "message": str(exc)}},
+    )
+
+
+async def quota_exceeded_handler(request: Request, exc: QuotaExceeded) -> JSONResponse:
+    """Return a quota exceeded response."""
+    logger.info(
+        "Quota exceeded path=%s used=%s limit=%s",
+        request.url.path,
+        exc.used,
+        exc.limit,
+    )
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error": {
+                "code": "quota_exceeded",
+                "message": "Daily LearnAssist quota exceeded.",
+                "retry_at_ist": exc.retry_at_ist,
+            }
+        },
     )
 
 

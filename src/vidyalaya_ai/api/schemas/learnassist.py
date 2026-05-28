@@ -6,14 +6,16 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from vidyalaya_ai.api.schemas.me import UsageResponse
+
 
 class LearnAssistChatRequest(BaseModel):
     """LearnAssist chat request."""
 
-    query: str = Field(..., min_length=1)
+    query: str = Field(..., min_length=1, max_length=2000)
     board: str = Field(..., min_length=1)
-    class_no: int = Field(..., gt=0)
-    subject: str | None = None
+    class_no: int = Field(..., ge=1, le=12)
+    subject: str | None = Field(default=None, max_length=64)
     language: str | None = None
     debug: bool = False
 
@@ -29,6 +31,20 @@ class LearnAssistChatRequest(BaseModel):
         cleaned = value.strip()
         return cleaned or None
 
+    @field_validator("board")
+    @classmethod
+    def validate_board(cls, value: str) -> str:
+        """Require a known board."""
+        if value != "scert_odisha":
+            raise ValueError("board must be one of: scert_odisha")
+        return value
+
+    @field_validator("subject")
+    @classmethod
+    def normalize_subject(cls, value: str | None) -> str | None:
+        """Normalize subject filters for retrieval."""
+        return value.lower() if value else None
+
 
 class LearnAssistChatResponse(BaseModel):
     """LearnAssist chat response."""
@@ -36,4 +52,5 @@ class LearnAssistChatResponse(BaseModel):
     answer: str
     citations: list[dict[str, Any]]
     retrieval: dict[str, Any]
+    usage: UsageResponse | None = None
     context_blocks: list[dict[str, Any]] | None = None

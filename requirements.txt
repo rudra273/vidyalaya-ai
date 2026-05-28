@@ -6,3 +6,6 @@ langchain-google-genai
 fastapi
 uvicorn
 firebase-admin
+motor
+langgraph
+langgraph-checkpoint-mongodb

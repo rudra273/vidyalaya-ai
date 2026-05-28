@@ -1,6 +1,6 @@
 # vidyalaya-ai — Codebase Map
 
-FastAPI RAG service that answers student questions from OCR'd school textbooks. Uses Gemini for embeddings + chat completion, Qdrant for vector storage, Firebase for auth. Mobile app sends a query → server retrieves relevant textbook chunks → LLM synthesizes an answer with citations.
+FastAPI RAG service that answers student questions from OCR'd school textbooks. Uses Gemini for embeddings + chat completion, Qdrant for vector storage, Firebase for auth, and MongoDB for users/profiles/usage. Mobile app sends a query → server retrieves relevant textbook chunks → LLM synthesizes an answer with citations.
 
 ## Stack & entrypoints
 
@@ -16,6 +16,9 @@ FastAPI RAG service that answers student questions from OCR'd school textbooks. 
 src/vidyalaya_ai/        FastAPI app — request handling, agents, RAG, LLM, auth
   ├── api/               FastAPI factory, routers (health/auth/learnassist), Pydantic schemas
   ├── auth/              Firebase Admin SDK token verification, AuthenticatedUser model
+  ├── db/                Motor MongoDB client lifecycle and indexes
+  ├── users/             User/profile MongoDB models and repository functions
+  ├── quota/             LearnAssist daily usage quota service
   ├── agents/            LearnAssist agent — orchestrates retrieve → LLM → answer+citations
   ├── rag/               Query embedding, Qdrant retrieval, context building, eval
   ├── llm/               LLM provider abstraction (currently Gemini via langchain-google-genai)
@@ -46,7 +49,7 @@ tests/                   Empty
 ## Data flow
 
 - **Offline:** PDFs → `ocr/` → JSONL → `ingestion/` → Qdrant.
-- **Runtime:** mobile → FastAPI `/ask` → Firebase auth → LearnAssist agent → RAG retrieve → Gemini → JSON `{answer, citations}`.
+- **Runtime:** mobile → FastAPI `/learnassist/chat` → Firebase auth/JIT user → quota check → LearnAssist agent → RAG retrieve → Gemini → JSON `{answer, citations, usage}`.
 
 ## Read these first for deeper context
 

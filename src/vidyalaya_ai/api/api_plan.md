@@ -24,6 +24,7 @@ Authorization: Bearer <firebase_id_token>
 ```
 
 FastAPI verifies that token with Firebase Admin SDK.
+Verified Firebase users are provisioned just-in-time in MongoDB. MongoDB also stores student profiles and daily LearnAssist usage counters.
 
 ## Endpoints
 
@@ -61,8 +62,65 @@ Response:
 ```json
 {
   "user_id": "firebase_uid",
+  "firebase_uid": "firebase_uid",
+  "mongo_id": "665...",
   "email": "student@example.com",
-  "name": "Student Name"
+  "name": "Student Name",
+  "role": "student",
+  "status": "active",
+  "quota_override": null
+}
+```
+
+### Profile
+
+```http
+GET /me/profile
+PUT /me/profile
+```
+
+Protected endpoints. `GET` returns `404` until onboarding creates a profile.
+
+PUT request:
+
+```json
+{
+  "board": "scert_odisha",
+  "class_no": 8,
+  "preferred_language": "or",
+  "school_name": null
+}
+```
+
+Response:
+
+```json
+{
+  "board": "scert_odisha",
+  "class_no": 8,
+  "preferred_language": "or",
+  "school_name": null,
+  "onboarding_completed": true,
+  "created_at": "2026-05-28T10:00:00Z",
+  "updated_at": "2026-05-28T10:00:00Z"
+}
+```
+
+### Usage
+
+```http
+GET /me/usage
+```
+
+Protected endpoint. Returns current LearnAssist usage without spending quota.
+
+```json
+{
+  "date_ist": "2026-05-28",
+  "used": 1,
+  "limit": 3,
+  "remaining": 2,
+  "unlimited": false
 }
 ```
 
@@ -109,9 +167,9 @@ debug
 
 ## Request Rules
 
-- `query` must not be empty.
-- `board` must not be empty.
-- `class_no` must be a positive integer.
+- `query` must not be empty and must be at most 2000 characters.
+- `board` must be `scert_odisha`.
+- `class_no` must be 1 through 12.
 - `subject` is optional. If missing or null, retrieval searches across subjects for the class.
 - `language` is optional and can guide the answer language.
 - `debug` controls whether context blocks are returned.
@@ -147,6 +205,13 @@ When `debug=false` or missing:
     "pages_found": [1, 20, 21, 22, 23, 35, 49, 66],
     "top_score": 0.77,
     "context_block_count": 4
+  },
+  "usage": {
+    "date_ist": "2026-05-28",
+    "used": 1,
+    "limit": 3,
+    "remaining": 2,
+    "unlimited": false
   }
 }
 ```
@@ -211,6 +276,18 @@ Unauthorized:
 }
 ```
 
+Quota exceeded:
+
+```json
+{
+  "error": {
+    "code": "quota_exceeded",
+    "message": "Daily LearnAssist quota exceeded.",
+    "retry_at_ist": "2026-05-29T00:00:00+05:30"
+  }
+}
+```
+
 ## Implementation Files
 
 Current structure:
@@ -229,16 +306,21 @@ src/vidyalaya_ai/
       health.py
       learnassist.py
       auth.py
+      me.py
     schemas/
       __init__.py
       common.py
       learnassist.py
       auth.py
+      me.py
   auth/
     __init__.py
     config.py
     firebase.py
     models.py
+  db/
+  users/
+  quota/
 ```
 
 ## Test Requests
