@@ -6,6 +6,7 @@ import logging
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from firebase_admin import auth as firebase_auth
 
 from vidyalaya_ai.auth.firebase import verify_firebase_id_token
 from vidyalaya_ai.auth.models import AuthenticatedUser
@@ -27,7 +28,14 @@ def get_current_user(
 
     try:
         user = verify_firebase_id_token(credentials.credentials)
-    except Exception:
+    except (
+        firebase_auth.InvalidIdTokenError,
+        firebase_auth.ExpiredIdTokenError,
+        firebase_auth.RevokedIdTokenError,
+        firebase_auth.UserDisabledError,
+        firebase_auth.CertificateFetchError,
+        ValueError,
+    ):
         logger.warning("Firebase token verification failed", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -15,11 +15,13 @@ from vidyalaya_ai.api.exceptions import (
 )
 from vidyalaya_ai.api.logging_config import setup_api_logging
 from vidyalaya_ai.api.routers import auth, health, learnassist
+from vidyalaya_ai.auth.firebase import initialize_firebase_app
 
 
 def create_app() -> FastAPI:
     """Create the FastAPI application."""
     setup_api_logging()
+    initialize_firebase_app()
 
     api = FastAPI(title="Vidyalaya AI", version="0.1.0")
     api.add_exception_handler(HTTPException, http_exception_handler)
