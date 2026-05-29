@@ -6,6 +6,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 from vidyalaya_ai.llm.config import LLMConfig
 from vidyalaya_ai.llm.providers.google import create_google_chat_model
+from vidyalaya_ai.llm.providers.openrouter import create_openrouter_chat_model
 
 
 def create_chat_model(config: LLMConfig | None = None) -> BaseChatModel:
@@ -15,5 +16,7 @@ def create_chat_model(config: LLMConfig | None = None) -> BaseChatModel:
 
     if provider == "google":
         return create_google_chat_model(config)
+    if provider == "openrouter":
+        return create_openrouter_chat_model(config)
 
     raise ValueError(f"Unsupported LLM provider: {config.provider}")

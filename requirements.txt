@@ -1,11 +1,14 @@
 google-genai
 qdrant-client
 python-dotenv
+langchain
 langchain-core
 langchain-google-genai
+langchain-openai
 fastapi
 uvicorn
 firebase-admin
 motor
+pymongo
 langgraph
 langgraph-checkpoint-mongodb

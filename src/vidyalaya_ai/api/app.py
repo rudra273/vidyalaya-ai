@@ -16,6 +16,7 @@ from vidyalaya_ai.api.exceptions import (
     validation_error_handler,
     value_error_handler,
 )
+from vidyalaya_ai.agents import close_checkpointer
 from vidyalaya_ai.api.logging_config import setup_api_logging
 from vidyalaya_ai.api.routers import auth, health, learnassist, me
 from vidyalaya_ai.auth.firebase import initialize_firebase_app
@@ -28,6 +29,7 @@ async def lifespan(api: FastAPI):
     """Application startup/shutdown lifecycle."""
     await ensure_indexes()
     yield
+    close_checkpointer()
     await close_mongo_client()
 
 

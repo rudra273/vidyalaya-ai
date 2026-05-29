@@ -19,10 +19,10 @@ src/vidyalaya_ai/        FastAPI app — request handling, agents, RAG, LLM, aut
   ├── db/                Motor MongoDB client lifecycle and indexes
   ├── users/             User/profile MongoDB models and repository functions
   ├── quota/             LearnAssist daily usage quota service
-  ├── agents/            LearnAssist agent — orchestrates retrieve → LLM → answer+citations
+  ├── agents/            LearnAssist agent (langchain create_agent + tools + MongoDB checkpointer)
   ├── rag/               Query embedding, Qdrant retrieval, context building, eval
   ├── llm/               LLM provider abstraction (currently Gemini via langchain-google-genai)
-  ├── tools/             Agent tools (retrieve_textbook)
+  ├── tools/             Underlying retrieve_textbook function (wrapped as a tool in agents/)
   └── common/            Shared utilities (placeholder)
 
 ingestion/               Offline ETL: OCR JSONL → chunk → embed → Qdrant upsert
@@ -49,7 +49,8 @@ tests/                   Empty
 ## Data flow
 
 - **Offline:** PDFs → `ocr/` → JSONL → `ingestion/` → Qdrant.
-- **Runtime:** mobile → FastAPI `/learnassist/chat` → Firebase auth/JIT user → quota check → LearnAssist agent → RAG retrieve → Gemini → JSON `{answer, citations, usage}`.
+- **Runtime:** mobile → FastAPI `/learnassist/chat` → Firebase auth/JIT user → quota check → LearnAssist agent (model decides whether to call `search_textbook`) → Gemini → JSON `{answer, citations, usage}`.
+- **LearnAssist agent:** built with `langchain.agents.create_agent` (ReAct on LangGraph). Memory is per-student via MongoDB checkpointer (`checkpoints`/`checkpoint_writes`, `thread_id = learnassist:{firebase_uid}`) with `SummarizationMiddleware`. Per-turn board/class/subject/language ride in the agent `context` (not checkpointed); `dynamic_prompt` injects the language rule. Package: `agents/learnassist/` (`agent`, `tools`, `prompt`, `context`, `state`, `runner`, `checkpointer`).
 
 ## Read these first for deeper context
 

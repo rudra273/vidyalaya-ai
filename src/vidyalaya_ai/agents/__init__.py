@@ -1,6 +1,18 @@
-"""Agent implementations for Vidyalaya AI."""
+"""Agents for Vidyalaya AI."""
 
-from vidyalaya_ai.agents.learnassist_agent import LearnAssistInput, answer_with_learnassist
+from vidyalaya_ai.agents.learnassist import (
+    LearnAssistContext,
+    LearnAssistResult,
+    close_checkpointer,
+    get_agent,
+    run_learnassist,
+)
 
 
-__all__ = ["LearnAssistInput", "answer_with_learnassist"]
+__all__ = [
+    "LearnAssistContext",
+    "LearnAssistResult",
+    "close_checkpointer",
+    "get_agent",
+    "run_learnassist",
+]

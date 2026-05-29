@@ -140,7 +140,7 @@ Request:
 
 ```json
 {
-  "query": "କୋଷ କିଏ ଆବିଷ୍କାର କରିଥିଲେ?",
+  "message": "କୋଷ କିଏ ଆବିଷ୍କାର କରିଥିଲେ?",
   "board": "scert_odisha",
   "class_no": 8,
   "subject": null,
@@ -152,7 +152,7 @@ Request:
 Required fields:
 
 ```text
-query
+message
 board
 class_no
 ```
@@ -167,7 +167,7 @@ debug
 
 ## Request Rules
 
-- `query` must not be empty and must be at most 2000 characters.
+- `message` must not be empty and must be at most 2000 characters.
 - `board` must be `scert_odisha`.
 - `class_no` must be 1 through 12.
 - `subject` is optional. If missing or null, retrieval searches across subjects for the class.
@@ -339,7 +339,7 @@ curl -X POST "https://<domain>/learnassist/chat" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <firebase_id_token>" \
   -d '{
-    "query": "Who was Major Somnath Sharma?",
+    "message": "Who was Major Somnath Sharma?",
     "board": "scert_odisha",
     "class_no": 8,
     "subject": "english",
@@ -352,7 +352,7 @@ Subject missing:
 
 ```json
 {
-  "query": "Who was Major Somnath Sharma?",
+  "message": "Who was Major Somnath Sharma?",
   "board": "scert_odisha",
   "class_no": 8,
   "debug": true
@@ -363,7 +363,7 @@ Odia query:
 
 ```json
 {
-  "query": "କୋଷ କିଏ ଆବିଷ୍କାର କରିଥିଲେ?",
+  "message": "କୋଷ କିଏ ଆବିଷ୍କାର କରିଥିଲେ?",
   "board": "scert_odisha",
   "class_no": 8,
   "language": "or",
@@ -375,7 +375,7 @@ Weak or general query:
 
 ```json
 {
-  "query": "How should I prepare for exams?",
+  "message": "How should I prepare for exams?",
   "board": "scert_odisha",
   "class_no": 8,
   "language": "en",
