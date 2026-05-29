@@ -47,7 +47,8 @@ def _limit_for_user(user: AuthenticatedUser) -> int | None:
     override = user.quota_override
     if override == "unlimited":
         return None
-    if isinstance(override, int):
+    # bool is a subclass of int; exclude it so quota_override=true is not read as limit=1.
+    if isinstance(override, int) and not isinstance(override, bool):
         return max(0, override)
     return load_quota_config().default_daily_limit
 

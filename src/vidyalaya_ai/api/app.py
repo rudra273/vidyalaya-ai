@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
@@ -21,12 +23,20 @@ from vidyalaya_ai.db import close_mongo_client, ensure_indexes
 from vidyalaya_ai.quota.exceptions import QuotaExceeded
 
 
+@asynccontextmanager
+async def lifespan(api: FastAPI):
+    """Application startup/shutdown lifecycle."""
+    await ensure_indexes()
+    yield
+    await close_mongo_client()
+
+
 def create_app() -> FastAPI:
     """Create the FastAPI application."""
     setup_api_logging()
     initialize_firebase_app()
 
-    api = FastAPI(title="Vidyalaya AI", version="0.1.0")
+    api = FastAPI(title="Vidyalaya AI", version="0.1.0", lifespan=lifespan)
     api.add_exception_handler(HTTPException, http_exception_handler)
     api.add_exception_handler(ValueError, value_error_handler)
     api.add_exception_handler(ValidationError, validation_error_handler)
@@ -37,14 +47,6 @@ def create_app() -> FastAPI:
     api.include_router(auth.router)
     api.include_router(me.router)
     api.include_router(learnassist.router)
-
-    @api.on_event("startup")
-    async def startup() -> None:
-        await ensure_indexes()
-
-    @api.on_event("shutdown")
-    async def shutdown() -> None:
-        await close_mongo_client()
 
     return api
 

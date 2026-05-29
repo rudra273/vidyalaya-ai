@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, field_validator
 
 
 class AuthenticatedUser(BaseModel):
@@ -15,4 +17,12 @@ class AuthenticatedUser(BaseModel):
     name: str | None = None
     role: str = "student"
     status: str = "active"
-    quota_override: str | int | None = None
+    quota_override: Literal["unlimited"] | int | None = None
+
+    @field_validator("quota_override", mode="before")
+    @classmethod
+    def reject_bool_override(cls, value: object) -> object:
+        """Treat a stray boolean override as 'no override' instead of int 1/0."""
+        if isinstance(value, bool):
+            return None
+        return value

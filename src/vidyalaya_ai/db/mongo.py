@@ -30,19 +30,31 @@ def get_db() -> AsyncIOMotorDatabase:
 
 
 async def ensure_indexes() -> None:
-    """Create MongoDB indexes used by the app."""
+    """Create MongoDB indexes used by the app.
+
+    Failures here are logged but do not crash startup: a transient Mongo
+    hiccup at boot should not kill the deploy. Indexes are re-attempted on
+    the next startup, and the first request will surface a clear error if
+    Mongo is genuinely unreachable.
+    """
     if not has_mongo_config():
         logger.warning("MONGODB_URI is not set; skipping Mongo index setup")
         return
 
+    try:
+        await _create_indexes()
+    except Exception:
+        logger.exception("Failed to ensure Mongo indexes at startup; continuing")
+
+
+async def _create_indexes() -> None:
+    """Create the indexes. Separated so ensure_indexes can guard it."""
     db = get_db()
     await db.command("ping")
     await db.users.create_index([("firebase_uid", ASCENDING)], unique=True)
-    await db.users.create_index(
-        [("email", ASCENDING)],
-        unique=True,
-        sparse=True,
-    )
+    # Non-unique: a single email can map to multiple Firebase UIDs across providers,
+    # and identity is keyed by firebase_uid. Unique here would lock users out on a UID change.
+    await db.users.create_index([("email", ASCENDING)], sparse=True)
     await db.student_profiles.create_index([("user_id", ASCENDING)], unique=True)
     await db.student_profiles.create_index([("firebase_uid", ASCENDING)], unique=True)
     await db.daily_usage.create_index(

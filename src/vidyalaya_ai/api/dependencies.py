@@ -18,6 +18,7 @@ from vidyalaya_ai.users.repository import upsert_user_from_token
 logger = logging.getLogger("vidyalaya_ai.api")
 bearer_scheme = HTTPBearer(auto_error=False)
 USER_CACHE_TTL_SECONDS = 60
+USER_CACHE_MAX_SIZE = 10_000
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,23 @@ class _CachedUser:
 
 
 _user_cache: dict[str, _CachedUser] = {}
+
+
+def _cache_user(firebase_uid: str, user: AuthenticatedUser) -> None:
+    """Store a user in the bounded cache, evicting expired/oldest entries first."""
+    now = time.monotonic()
+    if len(_user_cache) >= USER_CACHE_MAX_SIZE:
+        expired = [uid for uid, entry in _user_cache.items() if entry.expires_at <= now]
+        for uid in expired:
+            del _user_cache[uid]
+        # Still full after pruning expired entries: drop the oldest to make room.
+        while len(_user_cache) >= USER_CACHE_MAX_SIZE:
+            oldest = min(_user_cache, key=lambda uid: _user_cache[uid].expires_at)
+            del _user_cache[oldest]
+    _user_cache[firebase_uid] = _CachedUser(
+        expires_at=now + USER_CACHE_TTL_SECONDS,
+        user=user,
+    )
 
 
 async def get_current_user(
@@ -82,8 +100,5 @@ async def get_current_user(
         status=user_doc.status,
         quota_override=user_doc.quota_override,
     )
-    _user_cache[firebase_uid] = _CachedUser(
-        expires_at=time.monotonic() + USER_CACHE_TTL_SECONDS,
-        user=user,
-    )
+    _cache_user(firebase_uid, user)
     return user
