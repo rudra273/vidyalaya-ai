@@ -68,7 +68,7 @@ async def run_learnassist(
     survives the agent's retry middleware raises :class:`AgentUnavailable`
     (503). The full underlying error is logged server-side only.
     """
-    agent = get_agent()
+    agent = get_agent_for(provider, model)
     config = {"configurable": {"thread_id": thread_id}}
     logger.info(
         "LearnAssist turn thread=%s board=%s class=%s subject=%s",

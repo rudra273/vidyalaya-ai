@@ -5,9 +5,10 @@ the LLM provider/model used for that tier. Plans are defined in code (not the DB
 so changing a tier's quota or model is a code change, reviewed and deployed —
 the ``subscriptions`` table only records *which* plan a user holds.
 
-A ``daily_limit`` of ``None`` means unlimited. ``provider``/``model`` default to
-``None`` to mean "use the app-wide LLMConfig default" (so a tier can inherit the
-env-configured model without pinning one here).
+A ``daily_limit`` of ``None`` means unlimited. Free users use the direct Google
+Gemini provider, while paid tiers route the same Gemini 2.0 Flash model through
+OpenRouter. Later, paid tiers can be moved to larger models by changing only
+these plan definitions.
 
 These are sensible starting values — tune the numbers and model ids freely; the
 schema and resolution logic do not depend on the specific values.
@@ -28,13 +29,35 @@ class Plan:
     model: str | None = None  # None = app default (LLMConfig)
 
 
-# free  — low daily cap on the default low-cost model.
-# plus  — higher cap, still the cost-effective default model.
-# pro   — highest cap; pin a stronger model here when one is chosen.
+# Direct Gemini provider model id (LangChain Google provider).
+GOOGLE_GEMINI_2_FLASH = "gemini-2.0-flash"
+
+# OpenRouter model id for the same Gemini 2.0 Flash family.
+OPENROUTER_GEMINI_2_FLASH = "google/gemini-2.0-flash-001"
+
+
+# free  — low daily cap on direct Gemini, suitable for the free API key.
+# plus  — higher cap through OpenRouter, same model for now.
+# pro   — highest cap through OpenRouter, same model for now.
 PLANS: dict[str, Plan] = {
-    "free": Plan(key="free", daily_limit=3),
-    "plus": Plan(key="plus", daily_limit=25),
-    "pro": Plan(key="pro", daily_limit=100),
+    "free": Plan(
+        key="free",
+        daily_limit=3,
+        provider="google",
+        model=GOOGLE_GEMINI_2_FLASH,
+    ),
+    "plus": Plan(
+        key="plus",
+        daily_limit=25,
+        provider="openrouter",
+        model=OPENROUTER_GEMINI_2_FLASH,
+    ),
+    "pro": Plan(
+        key="pro",
+        daily_limit=100,
+        provider="openrouter",
+        model=OPENROUTER_GEMINI_2_FLASH,
+    ),
 }
 
 DEFAULT_PLAN_KEY = "free"
