@@ -46,12 +46,21 @@ def _next_midnight_ist(now: datetime | None = None) -> str:
 
 
 def _limit_for_user(user: AuthenticatedUser) -> int | None:
+    # Emergency admin override wins over the plan, in both directions.
     override = user.quota_override
     if override == "unlimited":
         return None
     # bool is a subclass of int; exclude it so quota_override=true is not read as limit=1.
     if isinstance(override, int) and not isinstance(override, bool):
         return max(0, override)
+    # Otherwise the daily limit comes from the user's subscription plan
+    # (None = unlimited). Falls back to the env default if a plan limit is unset.
+    if user.plan_daily_limit is not None:
+        return max(0, user.plan_daily_limit)
+    # A plan can intentionally grant unlimited (daily_limit=None); distinguish
+    # that from "no plan info" via plan_key.
+    if user.plan_key and user.plan_key != "free":
+        return None
     return load_quota_config().default_daily_limit
 
 

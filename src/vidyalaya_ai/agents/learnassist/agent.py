@@ -7,7 +7,12 @@ from functools import lru_cache
 from typing import Any
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import before_model, dynamic_prompt, wrap_model_call
+from langchain.agents.middleware import (
+    ModelRetryMiddleware,
+    before_model,
+    dynamic_prompt,
+    wrap_model_call,
+)
 from langchain_core.messages import AIMessage, RemoveMessage, ToolMessage, trim_messages
 
 from vidyalaya_ai.agents.learnassist.checkpointer import get_checkpointer
@@ -100,19 +105,57 @@ def _last_human_index(messages: list[Any]) -> int:
     return -1
 
 
-def build_agent(checkpointer: Any | None = None) -> Any:
-    """Compile the LearnAssist agent."""
-    model = create_chat_model(LLMConfig())
+# Retry transient model/provider failures (rate limits, 5xx, network blips)
+# with exponential backoff + jitter, on top of the SDK's own per-call retries.
+# A turn that still fails after this is treated as "provider unavailable" by the
+# runner. Kept small so a genuinely-down provider fails fast rather than holding
+# the request open near the turn timeout.
+_model_retry = ModelRetryMiddleware(
+    max_retries=2,
+    initial_delay=0.5,
+    backoff_factor=2.0,
+    max_delay=8.0,
+)
+
+
+def build_agent(
+    checkpointer: Any | None = None,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+) -> Any:
+    """Compile the LearnAssist agent for a given provider/model.
+
+    ``provider``/``model`` of ``None`` fall back to the env-configured defaults
+    in :class:`LLMConfig`, so a plan that doesn't pin a model inherits the app
+    default.
+    """
+    base = LLMConfig()
+    config = LLMConfig(
+        provider=provider or base.provider,
+        model=model or base.model,
+    )
+    chat_model = create_chat_model(config)
     return create_agent(
-        model=model,
+        model=chat_model,
         tools=[search_textbook],
-        middleware=[_heal_history, _trim_to_recent, _learnassist_prompt],
+        middleware=[_heal_history, _model_retry, _trim_to_recent, _learnassist_prompt],
         context_schema=LearnAssistContext,
         checkpointer=checkpointer,
     )
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=8)
+def get_agent_for(provider: str | None, model: str | None) -> Any:
+    """Return a compiled agent for (provider, model), cached per combination.
+
+    The checkpointer is shared (process-wide), so only the bound chat model
+    differs between cached agents. ``maxsize`` comfortably covers the handful of
+    plan tiers; distinct (provider, model) pairs are few and stable.
+    """
+    return build_agent(get_checkpointer(), provider=provider, model=model)
+
+
 def get_agent() -> Any:
-    """Return the process-wide compiled LearnAssist agent."""
-    return build_agent(get_checkpointer())
+    """Return the agent bound to the default (env-configured) provider/model."""
+    return get_agent_for(None, None)

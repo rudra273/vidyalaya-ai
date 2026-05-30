@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from vidyalaya_ai.api.dependencies import get_current_user
-from vidyalaya_ai.api.schemas.me import ProfileRequest, ProfileResponse, UsageResponse
+from vidyalaya_ai.api.schemas.me import (
+    HistoryMessage,
+    HistoryResponse,
+    ProfileRequest,
+    ProfileResponse,
+    UsageResponse,
+)
 from vidyalaya_ai.auth.models import AuthenticatedUser
+from vidyalaya_ai.chatlog import get_history
 from vidyalaya_ai.quota.service import get_usage
 from vidyalaya_ai.users.repository import get_profile, upsert_profile
 
 
 router = APIRouter(prefix="/me", tags=["me"])
+AGENT = "learnassist"
 
 
 @router.get("/profile", response_model=ProfileResponse)
@@ -43,13 +51,53 @@ async def read_usage(
 ) -> UsageResponse:
     """Return current LearnAssist usage without spending quota."""
     firebase_uid = current_user.firebase_uid or current_user.user_id
-    usage = await get_usage(firebase_uid, "learnassist", current_user)
+    usage = await get_usage(firebase_uid, AGENT, current_user)
     return UsageResponse(
         date_ist=usage.date_ist,
         used=usage.used,
         limit=usage.limit,
         remaining=usage.remaining,
         unlimited=usage.unlimited,
+    )
+
+
+@router.get("/history", response_model=HistoryResponse)
+async def read_history(
+    limit: int = Query(default=30, ge=1, le=100),
+    before: int | None = Query(
+        default=None,
+        ge=1,
+        description="Message id cursor; returns messages older than this id.",
+    ),
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> HistoryResponse:
+    """Return the student's chat history (oldest -> newest) for scroll-back.
+
+    Single continuous chat per student, so no thread param. Page backwards by
+    passing the returned ``next_before`` as ``before`` to load older messages.
+    """
+    firebase_uid = current_user.firebase_uid or current_user.user_id
+    rows = await get_history(
+        firebase_uid=firebase_uid,
+        agent=AGENT,
+        limit=limit,
+        before_id=before,
+    )
+    # A full page implies there may be older messages; the oldest id in this page
+    # (rows are chronological) is the cursor for the previous page.
+    next_before = rows[0].id if len(rows) == limit else None
+    return HistoryResponse(
+        messages=[
+            HistoryMessage(
+                id=r.id,
+                role=r.role,
+                content=r.content,
+                citations=r.citations,
+                created_at=r.created_at,
+            )
+            for r in rows
+        ],
+        next_before=next_before,
     )
 
 

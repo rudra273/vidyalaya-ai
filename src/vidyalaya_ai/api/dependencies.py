@@ -12,6 +12,7 @@ from firebase_admin import auth as firebase_auth
 
 from vidyalaya_ai.auth.firebase import verify_firebase_id_token
 from vidyalaya_ai.auth.models import AuthenticatedUser
+from vidyalaya_ai.subscriptions import resolve_plan
 from vidyalaya_ai.users.repository import upsert_user_from_token
 
 
@@ -90,6 +91,11 @@ async def get_current_user(
             detail="User account is not active.",
         )
 
+    # Resolve the effective plan once at auth time; cached with the user for the
+    # cache TTL so a plan change takes effect within ~60s without per-request DB
+    # reads on the chat hot path.
+    plan = await resolve_plan(firebase_uid)
+
     user = AuthenticatedUser(
         user_id=firebase_uid,
         firebase_uid=firebase_uid,
@@ -99,6 +105,25 @@ async def get_current_user(
         role=user_doc.role,
         status=user_doc.status,
         quota_override=user_doc.quota_override,
+        plan_key=plan.key,
+        plan_daily_limit=plan.daily_limit,
+        plan_provider=plan.provider,
+        plan_model=plan.model,
     )
     _cache_user(firebase_uid, user)
     return user
+
+
+async def require_admin(
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> AuthenticatedUser:
+    """Gate admin routes on ``role == "admin"`` (403 otherwise).
+
+    Admin is granted by setting ``users.role = 'admin'`` directly in the DB.
+    """
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required.",
+        )
+    return current_user

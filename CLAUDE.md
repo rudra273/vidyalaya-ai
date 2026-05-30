@@ -19,6 +19,7 @@ src/vidyalaya_ai/        FastAPI app — request handling, agents, RAG, LLM, aut
   ├── db/                Async SQLAlchemy (asyncpg) engine/session, declarative Base, ORM models; DATABASE_URL config
   ├── users/             User/profile SQLAlchemy repository functions + return DTOs
   ├── quota/             LearnAssist daily usage quota service
+  ├── chatlog/           Permanent chat history (messages) + per-turn usage_events; non-blocking post-response writes; history pagination
   ├── agents/            LearnAssist agent (langchain create_agent + tools + Postgres checkpointer)
   ├── rag/               Query embedding, Qdrant retrieval, context building, eval
   ├── llm/               LLM provider abstraction (currently Gemini via langchain-google-genai)

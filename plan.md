@@ -1,8 +1,8 @@
 # Vidyalaya AI — Launch Readiness Plan
 
 Plan to take LearnAssist (Agent 1) from "working" to "launch-ready": move off MongoDB to
-cheaper Postgres, add error handling, usage/token accounting, per-user overrides, an admin
-API, persistent chat history, and checkpoint cleanup.
+cheaper Postgres, add error handling, usage/token accounting, subscription-based model
+selection, an admin API, persistent chat history, and checkpoint cleanup.
 
 ---
 
@@ -34,7 +34,8 @@ API, persistent chat history, and checkpoint cleanup.
 
 **Known gaps (this plan addresses)**
 - Mongo cost; LLM/provider failures surface as raw 500s; no usage/token tracking; no admin tools;
-  no per-user LLM override; checkpoints grow unbounded; no permanent chat history for scroll-back.
+  no subscription-based model selection; checkpoints grow unbounded; no permanent chat history
+  for scroll-back.
 
 ---
 
@@ -54,8 +55,9 @@ API, persistent chat history, and checkpoint cleanup.
   response**. Safe because quota enforcement lives in `daily_usage` (blocking hot path); a rare
   lost analytics row never affects quota or correctness. (Revisit to blocking/outbox when real
   paid billing arrives.)
-- **Per-user overrides:** quota (exists) + new `llm_provider_override` / `llm_model_override`
-  (e.g. give a test user unlimited quota and a stronger model).
+- **Subscription plans:** quota + LLM provider/model are selected from hardcoded plan definitions
+  (`free`, `plus`, `pro`) via a user's current `subscriptions.plan_key`. Admins manually assign
+  plans first; payment-provider automation comes later without redesigning the schema.
 - **Admin:** JSON API only (no UI), gated by existing `users.role == "admin"`.
 - **Error handling:** retries + timeout + typed errors so the app never receives a raw 500.
 
@@ -69,13 +71,30 @@ Why Postgres for the checkpointer is safe: `langgraph-checkpoint-postgres` provi
 
 | Table | Purpose | Hot path? | Notes |
 |---|---|---|---|
-| `users` | identity, role, status, overrides | yes (auth) | + `llm_provider_override`, `llm_model_override` |
+| `users` | identity, role, status, emergency overrides | yes (auth) | keep `quota_override` for admin exceptions |
 | `student_profiles` | board, class, language | onboarding | as today |
 | `daily_usage` | quota counter | **yes (blocking)** | unique (firebase_uid, date_ist, agent) |
+| `subscriptions` | current/historical plan assignment | yes (auth/chat) | active `plan_key` chooses quota + LLM model |
 | `messages` | permanent chat history (scroll-back) | no | id, firebase_uid, thread_id, agent, role, content, citations(jsonb), created_at |
 | `usage_events` | analytics log | no (async) | tokens, llm_calls, tool_calls, model, agent, created_at |
 | checkpoint tables | agent runtime memory | yes | managed by `AsyncPostgresSaver.setup()`; pruned |
-| *(later)* `subscriptions`, `student_links` | payments, parent/teacher | — | not now |
+| *(later)* `student_links` | parent/teacher links | — | not now |
+
+Initial `subscriptions` columns:
+
+| Column | Purpose |
+|---|---|
+| `id` | primary key |
+| `user_id` | FK to `users.id` |
+| `firebase_uid` | denormalized lookup key |
+| `plan_key` | hardcoded plan id (`free`, `plus`, `pro`) |
+| `status` | `active`, `trialing`, `past_due`, `cancelled`, `expired` |
+| `source` | `admin` now; later `manual`, `razorpay`, `stripe` |
+| `current_period_start`, `current_period_end` | billing/entitlement window; nullable for admin/manual plans |
+| `cancel_at_period_end` | payment-provider compatible cancellation flag |
+| `started_at`, `ended_at` | assignment lifecycle; one current row has `ended_at IS NULL` |
+| `created_at`, `updated_at` | audit timestamps |
+| `metadata` | JSONB for provider-specific details later |
 
 Token counts come from LangChain response `usage_metadata` (Gemini + OpenRouter both return it),
 summed across the turn's AI messages.
@@ -127,23 +146,32 @@ can ship in any order.
 - Write `usage_events` non-blocking after the response (FastAPI BackgroundTask / asyncio task).
 - Verify: after N chats, row counts and summed token/call columns match actual activity.
 
-### Phase 5 — Per-user LLM + quota overrides
-- Add `llm_provider_override`, `llm_model_override` columns.
+### Phase 5 — Subscription plans for quota + model selection
+- Add a `subscriptions` table and service for resolving the user's effective plan. No active
+  subscription row means `free`.
+- Hardcode plan definitions in code first:
+  - `free`: default daily quota + default low-cost model.
+  - `plus`: higher daily quota + stronger/costlier model.
+  - `pro`: highest daily quota + strongest configured model.
 - Replace the single cached agent with `get_agent_for(provider, model)` cached by (provider, model).
-- Runner resolves effective provider/model: user override → else global env default → pick/build
-  matching agent. Quota override already honored.
-- Verify: a user with an override uses it (logged in `usage_events.model`); others use default.
+- Chat resolves effective quota/provider/model from active subscription plan (`active` or
+  `trialing`) → else `free`; keep existing `quota_override` only as an emergency admin exception.
+- Log the actual model used, and optionally `plan_key`, in `usage_events`.
+- Verify: no subscription uses `free`; admin-assigned `plus`/`pro` users use that plan's quota and
+  model; cancelled/expired users fall back to `free`.
 
 ### Phase 6 — Admin API
 - `require_admin` dependency (403 if `role != "admin"`).
 - Endpoints:
   - `GET /admin/users` — paged list (uid, email, role, status, overrides, last_seen).
-  - `GET /admin/users/{uid}` — profile + overrides + usage summary.
+  - `GET /admin/users/{uid}` — profile + current subscription/plan + usage summary.
   - `GET /admin/users/{uid}/usage` — rollup by agent/day (requests, llm_calls, tokens).
-  - `PATCH /admin/users/{uid}` — set quota_override, llm overrides, status.
+  - `PATCH /admin/users/{uid}` — set quota_override and account status.
+  - `PATCH /admin/users/{uid}/subscription` — manually assign `plan_key`/`status`; closes the
+    previous current subscription row and creates a new one.
   - `GET /admin/stats` — active users, requests/tokens today, top users, per-agent split.
 - Become admin by setting `role='admin'` in DB.
-- Verify: admin sees correct data; non-admin gets 403.
+- Verify: admin sees correct data and can assign plans; non-admin gets 403.
 
 ### Phase 7 — Checkpoint cleanup
 - Keep last 50 checkpoint rows per thread; delete threads idle > 90 days.
@@ -163,7 +191,7 @@ can ship in any order.
 ## 6. Out of scope (future)
 
 - Tutor Agent (separate plan).
-- Subscriptions / payments, parent/teacher roles (`subscriptions`, `student_links`).
+- Payment-provider automation/webhooks (Razorpay/Stripe), parent/teacher roles (`student_links`).
 - Prompt tuning passes (ongoing, as needed).
 - `max_tokens=1200` truncation handling — revisit in Phase 2 if observed.
 
@@ -175,6 +203,6 @@ can ship in any order.
 - **P2:** failures → friendly 4xx/5xx, never raw 500/stack trace.
 - **P3:** scroll-back shows full conversation; survives cleanup.
 - **P4:** usage_events totals match real calls/tokens.
-- **P5:** override users use overridden model/quota; others default.
-- **P6:** admin data correct; non-admin blocked.
+- **P5:** subscribed users use plan model/quota; no/inactive subscription falls back to `free`.
+- **P6:** admin data correct, plan assignment works, non-admin blocked.
 - **P7:** old checkpoints pruned; history + active threads intact.
