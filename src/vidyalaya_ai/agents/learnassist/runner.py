@@ -26,6 +26,18 @@ _TURN_TIMEOUT_SECONDS = float(os.getenv("LEARNASSIST_TURN_TIMEOUT", "90"))
 
 
 @dataclass
+class TurnUsage:
+    """Per-turn LLM/tool accounting, summed across the turn's AI messages."""
+
+    llm_calls: int = 0
+    tool_calls: int = 0
+    tokens_input: int = 0
+    tokens_output: int = 0
+    tokens_total: int = 0
+    model: str | None = None
+
+
+@dataclass
 class LearnAssistResult:
     """Result of a single LearnAssist turn."""
 
@@ -33,6 +45,7 @@ class LearnAssistResult:
     citations: list[dict[str, Any]] = field(default_factory=list)
     retrieval: dict[str, Any] = field(default_factory=dict)
     context_blocks: list[dict[str, Any]] = field(default_factory=list)
+    usage: TurnUsage = field(default_factory=TurnUsage)
 
 
 async def run_learnassist(
@@ -75,7 +88,32 @@ async def run_learnassist(
         citations=build_citations(blocks, answer),
         retrieval=retrieval,
         context_blocks=blocks,
+        usage=_usage_from_current_turn(messages),
     )
+
+
+def _usage_from_current_turn(messages: list[Any]) -> TurnUsage:
+    """Sum token/call usage from the AI + tool messages of the current turn.
+
+    Only messages after the last human turn are counted, so prior turns kept in
+    the checkpoint history are never double-counted. Token counts come from each
+    AIMessage's ``usage_metadata`` (Gemini and OpenRouter both populate it).
+    """
+    last_human = _last_index(messages, HumanMessage)
+    usage = TurnUsage()
+    for message in messages[last_human + 1 :]:
+        if isinstance(message, AIMessage):
+            usage.llm_calls += 1
+            if getattr(message, "tool_calls", None):
+                usage.tool_calls += len(message.tool_calls)
+            meta = getattr(message, "usage_metadata", None) or {}
+            usage.tokens_input += int(meta.get("input_tokens", 0) or 0)
+            usage.tokens_output += int(meta.get("output_tokens", 0) or 0)
+            usage.tokens_total += int(meta.get("total_tokens", 0) or 0)
+            model = (getattr(message, "response_metadata", {}) or {}).get("model_name")
+            if model:
+                usage.model = model
+    return usage
 
 
 def _retrieval_from_current_turn(

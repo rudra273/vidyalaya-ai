@@ -15,12 +15,14 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from vidyalaya_ai.db.base import Base
@@ -106,5 +108,59 @@ class DailyUsage(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     last_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class Message(Base):
+    """Permanent, display-only chat history for scroll-back.
+
+    Independent of the agent checkpointer: checkpoints can be pruned for cost
+    without losing what the student sees. One continuous chat per student, so
+    ``thread_id`` is currently ``learnassist:{firebase_uid}`` but stored so other
+    agents/threads can be added later.
+    """
+
+    __tablename__ = "messages"
+    __table_args__ = (
+        # Scroll-back queries page by user, newest-first, then reverse.
+        Index("ix_messages_user_created", "firebase_uid", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    firebase_uid: Mapped[str] = mapped_column(String(128))
+    thread_id: Mapped[str] = mapped_column(String(160))
+    agent: Mapped[str] = mapped_column(String(64))
+    role: Mapped[str] = mapped_column(String(16))  # "human" | "ai"
+    content: Mapped[str] = mapped_column(Text)
+    citations: Mapped[list | None] = mapped_column(JSONB, default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class UsageEvent(Base):
+    """Per-turn analytics log (written non-blocking after the response).
+
+    Distinct from ``daily_usage``: that is the blocking quota counter on the hot
+    path; this is fire-and-forget analytics, so a rare lost row never affects
+    quota or correctness.
+    """
+
+    __tablename__ = "usage_events"
+    __table_args__ = (
+        Index("ix_usage_events_user_created", "firebase_uid", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    firebase_uid: Mapped[str] = mapped_column(String(128))
+    agent: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str | None] = mapped_column(String(128), default=None)
+    llm_calls: Mapped[int] = mapped_column(Integer, default=0)
+    tool_calls: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_input: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_output: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_total: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

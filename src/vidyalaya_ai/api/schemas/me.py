@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -56,3 +57,24 @@ class UsageResponse(BaseModel):
     limit: int | None
     remaining: int | None
     unlimited: bool
+
+
+class HistoryMessage(BaseModel):
+    """One chat history message for scroll-back."""
+
+    id: int
+    role: str
+    content: str
+    citations: list[dict[str, Any]] | None = None
+    created_at: datetime
+
+
+class HistoryResponse(BaseModel):
+    """Paged chat history, oldest -> newest.
+
+    ``next_before`` is the cursor to pass as ``before`` to fetch the previous
+    (older) page; ``None`` means the start of the conversation was reached.
+    """
+
+    messages: list[HistoryMessage]
+    next_before: int | None = None

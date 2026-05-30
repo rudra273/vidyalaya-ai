@@ -8,6 +8,7 @@ from vidyalaya_ai.agents.exceptions import (
 from vidyalaya_ai.agents.learnassist import (
     LearnAssistContext,
     LearnAssistResult,
+    TurnUsage,
     close_checkpointer,
     get_agent,
     initialize_checkpointer,
@@ -21,6 +22,7 @@ __all__ = [
     "AgentUnavailable",
     "LearnAssistContext",
     "LearnAssistResult",
+    "TurnUsage",
     "close_checkpointer",
     "get_agent",
     "initialize_checkpointer",
