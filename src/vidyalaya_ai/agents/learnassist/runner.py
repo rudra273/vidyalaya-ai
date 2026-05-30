@@ -8,7 +8,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from vidyalaya_ai.agents.exceptions import AgentTimeout, AgentUnavailable
 from vidyalaya_ai.agents.learnassist.agent import get_agent
@@ -59,7 +59,12 @@ async def run_learnassist(
     The checkpointer stores only ``messages``. Per-turn inputs (board, class,
     subject, language) come from ``context`` each call, and retrieval output is
     read from this turn's search_textbook ToolMessage - so nothing leaks across
-    turns. Any model/tool error propagates to the caller.
+    turns.
+
+    Failures are normalized for the API: a turn that exceeds the time budget
+    raises :class:`AgentTimeout` (504), and a model/provider failure that
+    survives the agent's retry middleware raises :class:`AgentUnavailable`
+    (503). The full underlying error is logged server-side only.
     """
     agent = get_agent()
     config = {"configurable": {"thread_id": thread_id}}
@@ -73,11 +78,23 @@ async def run_learnassist(
 
     # Any orphaned tool turn left by a previous crash is cleaned by the agent's
     # _heal_history middleware before the model runs (see agent.py).
-    state = await agent.ainvoke(
-        {"messages": [HumanMessage(message)]},
-        context=context,
-        config=config,
-    )
+    try:
+        state = await asyncio.wait_for(
+            agent.ainvoke(
+                {"messages": [HumanMessage(message)]},
+                context=context,
+                config=config,
+            ),
+            timeout=_TURN_TIMEOUT_SECONDS,
+        )
+    except (asyncio.TimeoutError, TimeoutError) as exc:
+        logger.warning("LearnAssist turn timed out thread=%s", thread_id)
+        raise AgentTimeout("LearnAssist turn timed out.") from exc
+    except Exception as exc:
+        # Reached only after the agent's retry middleware has exhausted retries.
+        # Treat as a provider/model outage and surface a friendly 503.
+        logger.exception("LearnAssist turn failed thread=%s", thread_id)
+        raise AgentUnavailable("LearnAssist is temporarily unavailable.") from exc
 
     messages = state["messages"]
     answer = _final_text(messages[-1])
