@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
 from langchain_core.messages import HumanMessage, ToolMessage
 
+from vidyalaya_ai.agents.exceptions import AgentTimeout, AgentUnavailable
 from vidyalaya_ai.agents.learnassist.agent import get_agent
 from vidyalaya_ai.agents.learnassist.context import LearnAssistContext
 from vidyalaya_ai.agents.learnassist.prompt import build_citations, build_retrieval_metadata
@@ -15,6 +18,11 @@ from vidyalaya_ai.agents.learnassist.tools import SEARCH_TOOL_NAME
 
 
 logger = logging.getLogger("vidyalaya_ai.agents")
+
+# Hard ceiling for a single chat turn. Generous enough for retrieval + a couple
+# of model calls + retry backoff, but bounded so a stuck provider returns a 504
+# instead of holding the request (and a worker) open indefinitely.
+_TURN_TIMEOUT_SECONDS = float(os.getenv("LEARNASSIST_TURN_TIMEOUT", "90"))
 
 
 @dataclass
