@@ -11,7 +11,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from vidyalaya_ai.agents.exceptions import AgentTimeout, AgentUnavailable
-from vidyalaya_ai.agents.learnassist.agent import get_agent
+from vidyalaya_ai.agents.learnassist.agent import get_agent_for
 from vidyalaya_ai.agents.learnassist.context import LearnAssistContext
 from vidyalaya_ai.agents.learnassist.prompt import build_citations, build_retrieval_metadata
 from vidyalaya_ai.agents.learnassist.tools import SEARCH_TOOL_NAME
@@ -53,6 +53,8 @@ async def run_learnassist(
     context: LearnAssistContext,
     *,
     thread_id: str,
+    provider: str | None = None,
+    model: str | None = None,
 ) -> LearnAssistResult:
     """Run one chat turn and return the answer with citations and metadata.
 

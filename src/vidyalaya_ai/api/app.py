@@ -25,7 +25,7 @@ from vidyalaya_ai.agents import (
     initialize_checkpointer,
 )
 from vidyalaya_ai.api.logging_config import setup_api_logging
-from vidyalaya_ai.api.routers import auth, health, learnassist, me
+from vidyalaya_ai.api.routers import admin, auth, health, learnassist, me
 from vidyalaya_ai.auth.firebase import initialize_firebase_app
 from vidyalaya_ai.db import close_engine, ensure_schema
 from vidyalaya_ai.quota.exceptions import QuotaExceeded
@@ -59,6 +59,7 @@ def create_app() -> FastAPI:
     api.include_router(auth.router)
     api.include_router(me.router)
     api.include_router(learnassist.router)
+    api.include_router(admin.router)
 
     return api
 

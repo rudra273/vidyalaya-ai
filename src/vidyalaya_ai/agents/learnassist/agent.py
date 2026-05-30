@@ -118,11 +118,26 @@ _model_retry = ModelRetryMiddleware(
 )
 
 
-def build_agent(checkpointer: Any | None = None) -> Any:
-    """Compile the LearnAssist agent."""
-    model = create_chat_model(LLMConfig())
+def build_agent(
+    checkpointer: Any | None = None,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+) -> Any:
+    """Compile the LearnAssist agent for a given provider/model.
+
+    ``provider``/``model`` of ``None`` fall back to the env-configured defaults
+    in :class:`LLMConfig`, so a plan that doesn't pin a model inherits the app
+    default.
+    """
+    base = LLMConfig()
+    config = LLMConfig(
+        provider=provider or base.provider,
+        model=model or base.model,
+    )
+    chat_model = create_chat_model(config)
     return create_agent(
-        model=model,
+        model=chat_model,
         tools=[search_textbook],
         middleware=[_heal_history, _model_retry, _trim_to_recent, _learnassist_prompt],
         context_schema=LearnAssistContext,
@@ -130,7 +145,17 @@ def build_agent(checkpointer: Any | None = None) -> Any:
     )
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=8)
+def get_agent_for(provider: str | None, model: str | None) -> Any:
+    """Return a compiled agent for (provider, model), cached per combination.
+
+    The checkpointer is shared (process-wide), so only the bound chat model
+    differs between cached agents. ``maxsize`` comfortably covers the handful of
+    plan tiers; distinct (provider, model) pairs are few and stable.
+    """
+    return build_agent(get_checkpointer(), provider=provider, model=model)
+
+
 def get_agent() -> Any:
-    """Return the process-wide compiled LearnAssist agent."""
-    return build_agent(get_checkpointer())
+    """Return the agent bound to the default (env-configured) provider/model."""
+    return get_agent_for(None, None)

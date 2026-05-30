@@ -20,6 +20,13 @@ class AuthenticatedUser(BaseModel):
     role: str = "student"
     status: str = "active"
     quota_override: Literal["unlimited"] | int | None = None
+    # Effective subscription plan, resolved at auth time (free when none active).
+    # The plan supplies the daily quota and LLM provider/model for the turn;
+    # quota_override stays as an emergency admin exception layered on top.
+    plan_key: str = "free"
+    plan_daily_limit: int | None = None
+    plan_provider: str | None = None
+    plan_model: str | None = None
 
     @field_validator("quota_override", mode="before")
     @classmethod

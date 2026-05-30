@@ -48,6 +48,8 @@ async def learnassist_chat(
             language=payload.language,
         ),
         thread_id=thread_id,
+        provider=current_user.plan_provider,
+        model=current_user.plan_model,
     )
 
     # Persist history + usage after the response is sent (Phases 3 & 4): never

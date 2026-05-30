@@ -1,9 +1,9 @@
 """SQLAlchemy ORM models for app-owned tables.
 
-Phase 1 covers identity + quota: ``users``, ``student_profiles``, ``daily_usage``.
+Identity + quota: ``users``, ``student_profiles``, ``daily_usage``. Chat history
++ analytics: ``messages``, ``usage_events``. Plan assignment: ``subscriptions``.
 The LangGraph checkpoint tables are created and owned by ``AsyncPostgresSaver``
-(``await saver.setup()``), not declared here. Later phases add ``messages`` and
-``usage_events``.
+(``await saver.setup()``), not declared here.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
@@ -58,6 +59,58 @@ class User(Base):
 
     profile: Mapped["StudentProfile | None"] = relationship(
         back_populates="user", uselist=False
+    )
+
+
+class Subscription(Base):
+    """Plan assignment for a user — chooses quota + LLM provider/model.
+
+    One *current* row per user has ``ended_at IS NULL``; assigning a new plan
+    closes the previous current row and inserts a new one (audit trail). The
+    plan itself (quota numbers, model id) is defined in code
+    (``subscriptions/plans.py``); this table only records which ``plan_key`` a
+    user holds and its lifecycle. Columns beyond plan_key/status are present now
+    so a payment provider (Razorpay/Stripe) can be wired in later without a
+    schema change.
+    """
+
+    __tablename__ = "subscriptions"
+    __table_args__ = (
+        # Resolving a user's current plan: filter by user, current row first.
+        Index("ix_subscriptions_user_ended", "firebase_uid", "ended_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=_uuid
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
+    )
+    firebase_uid: Mapped[str] = mapped_column(String(128), index=True)
+    plan_key: Mapped[str] = mapped_column(String(32))  # free | plus | pro
+    # active | trialing | past_due | cancelled | expired
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    source: Mapped[str] = mapped_column(String(32), default="admin")  # admin | manual | razorpay | stripe
+    current_period_start: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    current_period_end: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    # NULL marks the user's current assignment; set when superseded/cancelled.
+    ended_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    extra_metadata: Mapped[dict | None] = mapped_column("metadata", JSONB, default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
 
