@@ -27,11 +27,22 @@ logger = logging.getLogger("vidyalaya_ai.agents")
 _pool: AsyncConnectionPool | None = None
 _checkpointer: Any | None = None
 
-# AsyncPostgresSaver requires autocommit connections (it manages its own
-# transactions) and uses prepared statements. prepare_threshold=0 keeps it
-# compatible if you ever route through a pooler; a direct/session connection
-# supports prepares fine.
-_CONNECTION_KWARGS = {"autocommit": True, "prepare_threshold": 0}
+# Connection kwargs for every pooled checkpointer connection:
+# - autocommit: AsyncPostgresSaver manages its own transactions.
+# - prepare_threshold=0: stay compatible if routed through a pooler.
+# - connect_timeout: fail fast instead of hanging if the DB is unreachable.
+# - keepalives: ask the OS to probe idle TCP sockets so a connection silently
+#   dropped by Supabase's pooler/NAT is detected quickly rather than hanging
+#   until a multi-minute SSL syscall timeout on the next request.
+_CONNECTION_KWARGS = {
+    "autocommit": True,
+    "prepare_threshold": 0,
+    "connect_timeout": 10,
+    "keepalives": 1,
+    "keepalives_idle": 30,
+    "keepalives_interval": 10,
+    "keepalives_count": 3,
+}
 
 
 async def initialize_checkpointer() -> Any:
@@ -54,9 +65,18 @@ async def initialize_checkpointer() -> Any:
     config = load_postgres_config()
     _pool = AsyncConnectionPool(
         conninfo=config.psycopg_url,
+        min_size=1,
         max_size=10,
         open=False,
         kwargs=_CONNECTION_KWARGS,
+        # Validate a connection before handing it out: a stale/dead connection
+        # (reaped by the pooler while idle) is transparently discarded and
+        # replaced instead of surfacing as a 500 on the next chat request.
+        check=AsyncConnectionPool.check_connection,
+        # Recycle connections proactively so they rotate out before the upstream
+        # pooler kills them for being idle.
+        max_idle=120.0,
+        max_lifetime=1800.0,
     )
     await _pool.open(wait=True)
     saver = AsyncPostgresSaver(_pool)
