@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from pymongo import ReturnDocument
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 
 from vidyalaya_ai.auth.models import AuthenticatedUser
-from vidyalaya_ai.db.mongo import get_db
+from vidyalaya_ai.db.engine import session_scope
+from vidyalaya_ai.db.models import DailyUsage
 from vidyalaya_ai.quota.config import load_quota_config
 from vidyalaya_ai.quota.exceptions import QuotaExceeded
 
@@ -73,17 +75,29 @@ async def check_and_increment(
             unlimited=True,
         )
 
-    document = await get_db().daily_usage.find_one_and_update(
-        {"firebase_uid": firebase_uid, "date_ist": date_ist, "agent": agent},
-        {
-            "$inc": {"count": 1},
-            "$set": {"last_at": now},
-            "$setOnInsert": {"first_at": now},
-        },
-        upsert=True,
-        return_document=ReturnDocument.AFTER,
+    # Atomic spend: insert the day's row at count=1, or bump an existing row by
+    # one, returning the post-increment count in a single round trip.
+    stmt = (
+        insert(DailyUsage)
+        .values(
+            firebase_uid=firebase_uid,
+            date_ist=date_ist,
+            agent=agent,
+            count=1,
+            first_at=now,
+            last_at=now,
+        )
+        .on_conflict_do_update(
+            constraint="uq_daily_usage_user_date_agent",
+            set_={"count": DailyUsage.count + 1, "last_at": now},
+        )
+        .returning(DailyUsage.count)
     )
-    used = int(document.get("count", 0))
+    async with session_scope() as session:
+        result = await session.execute(stmt)
+        used = int(result.scalar_one())
+        await session.commit()
+
     if used > limit:
         raise QuotaExceeded(used=used, limit=limit, retry_at_ist=_next_midnight_ist(now))
 
@@ -111,10 +125,13 @@ async def get_usage(firebase_uid: str, agent: str, user: AuthenticatedUser) -> U
 
 
 async def _read_count(firebase_uid: str, agent: str, date_ist: str) -> int:
-    document = await get_db().daily_usage.find_one(
-        {"firebase_uid": firebase_uid, "date_ist": date_ist, "agent": agent},
-        {"count": 1},
-    )
-    if document is None:
-        return 0
-    return int(document.get("count", 0))
+    async with session_scope() as session:
+        result = await session.execute(
+            select(DailyUsage.count).where(
+                DailyUsage.firebase_uid == firebase_uid,
+                DailyUsage.date_ist == date_ist,
+                DailyUsage.agent == agent,
+            )
+        )
+        count = result.scalar_one_or_none()
+    return int(count) if count is not None else 0

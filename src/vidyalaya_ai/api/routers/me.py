@@ -60,15 +60,15 @@ async def write_profile(
 ) -> ProfileResponse:
     """Create or update the authenticated student's profile."""
     firebase_uid = current_user.firebase_uid or current_user.user_id
-    if current_user.mongo_id is None:
+    if current_user.db_id is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Authenticated user is missing Mongo identity.",
+            detail="Authenticated user is missing database identity.",
         )
 
     profile = await upsert_profile(
         firebase_uid=firebase_uid,
-        user_id=current_user.mongo_id,
+        user_id=current_user.db_id,
         board=payload.board,
         class_no=payload.class_no,
         preferred_language=payload.preferred_language,

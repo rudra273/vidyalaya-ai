@@ -16,21 +16,22 @@ from vidyalaya_ai.api.exceptions import (
     validation_error_handler,
     value_error_handler,
 )
-from vidyalaya_ai.agents import close_checkpointer
+from vidyalaya_ai.agents import close_checkpointer, initialize_checkpointer
 from vidyalaya_ai.api.logging_config import setup_api_logging
 from vidyalaya_ai.api.routers import auth, health, learnassist, me
 from vidyalaya_ai.auth.firebase import initialize_firebase_app
-from vidyalaya_ai.db import close_mongo_client, ensure_indexes
+from vidyalaya_ai.db import close_engine, ensure_schema
 from vidyalaya_ai.quota.exceptions import QuotaExceeded
 
 
 @asynccontextmanager
 async def lifespan(api: FastAPI):
     """Application startup/shutdown lifecycle."""
-    await ensure_indexes()
+    await ensure_schema()
+    await initialize_checkpointer()
     yield
-    close_checkpointer()
-    await close_mongo_client()
+    await close_checkpointer()
+    await close_engine()
 
 
 def create_app() -> FastAPI:

@@ -1,26 +1,65 @@
-"""MongoDB repository functions for users and profiles."""
+"""Postgres repository functions for users and profiles.
+
+Signatures match the previous Mongo repository so routers/dependencies are
+unchanged. Upserts use ``INSERT ... ON CONFLICT DO UPDATE ... RETURNING`` for an
+atomic create-or-refresh in one round trip.
+"""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
 
-from pymongo import ReturnDocument
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 
-from vidyalaya_ai.db.mongo import get_db
-from vidyalaya_ai.users.models import StudentProfileDoc, UserDoc
+from vidyalaya_ai.db.engine import session_scope
+from vidyalaya_ai.db.models import StudentProfile, User
+from vidyalaya_ai.users.models import QuotaOverride, StudentProfileDoc, UserDoc
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def _stringify_id(document: dict[str, Any]) -> dict[str, Any]:
-    document = dict(document)
-    document["_id"] = str(document["_id"])
-    if "user_id" in document:
-        document["user_id"] = str(document["user_id"])
-    return document
+def _parse_quota_override(raw: str | None) -> QuotaOverride:
+    """Convert the text-stored override back to its typed form."""
+    if raw is None:
+        return None
+    if raw == "unlimited":
+        return "unlimited"
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _user_to_doc(user: User) -> UserDoc:
+    return UserDoc(
+        id=str(user.id),
+        firebase_uid=user.firebase_uid,
+        email=user.email,
+        display_name=user.display_name,
+        role=user.role,  # type: ignore[arg-type]
+        status=user.status,  # type: ignore[arg-type]
+        quota_override=_parse_quota_override(user.quota_override),
+        created_at=user.created_at,
+        last_seen_at=user.last_seen_at,
+    )
+
+
+def _profile_to_doc(profile: StudentProfile) -> StudentProfileDoc:
+    return StudentProfileDoc(
+        id=str(profile.id),
+        user_id=str(profile.user_id),
+        firebase_uid=profile.firebase_uid,
+        board=profile.board,
+        class_no=profile.class_no,
+        preferred_language=profile.preferred_language,
+        school_name=profile.school_name,
+        onboarding_completed=True,
+        created_at=profile.created_at,
+        updated_at=profile.updated_at,
+    )
 
 
 async def upsert_user_from_token(
@@ -30,50 +69,57 @@ async def upsert_user_from_token(
 ) -> UserDoc:
     """Create or refresh a user from a verified Firebase identity."""
     now = _now()
-    set_fields: dict[str, Any] = {
-        "display_name": name,
-        "last_seen_at": now,
-    }
+    # On insert: seed identity + defaults. On conflict: refresh the mutable
+    # identity fields (display_name, last_seen, and email when present) but never
+    # touch role/status/quota_override set elsewhere.
+    update_on_conflict: dict[str, object] = {"display_name": name, "last_seen_at": now}
     if email is not None:
-        set_fields["email"] = email
+        update_on_conflict["email"] = email
 
-    update: dict[str, Any] = {
-        "$set": set_fields,
-        "$setOnInsert": {
-            "firebase_uid": firebase_uid,
-            "role": "student",
-            "status": "active",
-            "quota_override": None,
-            "created_at": now,
-            "schema_version": 1,
-        },
-    }
-    if email is None:
-        update["$unset"] = {"email": ""}
-
-    document = await get_db().users.find_one_and_update(
-        {"firebase_uid": firebase_uid},
-        update,
-        upsert=True,
-        return_document=ReturnDocument.AFTER,
+    stmt = (
+        insert(User)
+        .values(
+            firebase_uid=firebase_uid,
+            email=email,
+            display_name=name,
+            role="student",
+            status="active",
+            quota_override=None,
+            created_at=now,
+            last_seen_at=now,
+        )
+        .on_conflict_do_update(
+            index_elements=[User.firebase_uid],
+            set_=update_on_conflict,
+        )
+        .returning(User)
     )
-    return UserDoc.model_validate(_stringify_id(document))
+
+    async with session_scope() as session:
+        result = await session.execute(stmt)
+        user = result.scalar_one()
+        await session.commit()
+        return _user_to_doc(user)
 
 
 async def get_user_by_firebase_uid(firebase_uid: str) -> UserDoc | None:
     """Fetch a user by Firebase UID."""
-    document = await get_db().users.find_one({"firebase_uid": firebase_uid})
-    if document is None:
-        return None
-    return UserDoc.model_validate(_stringify_id(document))
+    async with session_scope() as session:
+        result = await session.execute(
+            select(User).where(User.firebase_uid == firebase_uid)
+        )
+        user = result.scalar_one_or_none()
+        return _user_to_doc(user) if user is not None else None
 
 
 async def get_profile(firebase_uid: str) -> StudentProfileDoc | None:
     """Fetch a student profile by Firebase UID."""
-    document = await get_db().student_profiles.find_one({"firebase_uid": firebase_uid})
-    if document is None:
-        return None
-    return StudentProfileDoc.model_validate(_stringify_id(document))
+    async with session_scope() as session:
+        result = await session.execute(
+            select(StudentProfile).where(StudentProfile.firebase_uid == firebase_uid)
+        )
+        profile = result.scalar_one_or_none()
+        return _profile_to_doc(profile) if profile is not None else None
 
 
 async def upsert_profile(
@@ -87,25 +133,34 @@ async def upsert_profile(
 ) -> StudentProfileDoc:
     """Create or update a student profile."""
     now = _now()
-    document = await get_db().student_profiles.find_one_and_update(
-        {"firebase_uid": firebase_uid},
-        {
-            "$set": {
+    stmt = (
+        insert(StudentProfile)
+        .values(
+            user_id=user_id,
+            firebase_uid=firebase_uid,
+            board=board,
+            class_no=class_no,
+            preferred_language=preferred_language,
+            school_name=school_name,
+            created_at=now,
+            updated_at=now,
+        )
+        .on_conflict_do_update(
+            index_elements=[StudentProfile.firebase_uid],
+            set_={
                 "user_id": user_id,
                 "board": board,
                 "class_no": class_no,
                 "preferred_language": preferred_language,
                 "school_name": school_name,
-                "onboarding_completed": True,
                 "updated_at": now,
-                "schema_version": 1,
             },
-            "$setOnInsert": {
-                "firebase_uid": firebase_uid,
-                "created_at": now,
-            },
-        },
-        upsert=True,
-        return_document=ReturnDocument.AFTER,
+        )
+        .returning(StudentProfile)
     )
-    return StudentProfileDoc.model_validate(_stringify_id(document))
+
+    async with session_scope() as session:
+        result = await session.execute(stmt)
+        profile = result.scalar_one()
+        await session.commit()
+        return _profile_to_doc(profile)

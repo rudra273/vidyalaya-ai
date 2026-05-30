@@ -93,7 +93,7 @@ async def get_current_user(
     user = AuthenticatedUser(
         user_id=firebase_uid,
         firebase_uid=firebase_uid,
-        mongo_id=user_doc.id,
+        db_id=user_doc.id,
         email=user_doc.email,
         name=user_doc.display_name,
         role=user_doc.role,

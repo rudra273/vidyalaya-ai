@@ -1,6 +1,20 @@
-"""MongoDB access helpers."""
+"""Postgres access helpers."""
 
-from vidyalaya_ai.db.mongo import close_mongo_client, ensure_indexes, get_db
+from vidyalaya_ai.db.base import Base
+from vidyalaya_ai.db.engine import (
+    close_engine,
+    ensure_schema,
+    get_engine,
+    get_sessionmaker,
+    session_scope,
+)
 
 
-__all__ = ["close_mongo_client", "ensure_indexes", "get_db"]
+__all__ = [
+    "Base",
+    "close_engine",
+    "ensure_schema",
+    "get_engine",
+    "get_sessionmaker",
+    "session_scope",
+]

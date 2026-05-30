@@ -1,20 +1,25 @@
-"""Pydantic models for user-owned MongoDB documents."""
+"""DTOs returned by the users repository.
+
+These are plain Pydantic carriers over the SQLAlchemy rows, kept as the
+repository's return contract so routers/dependencies stay unchanged across the
+Mongo -> Postgres migration.
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 QuotaOverride = Literal["unlimited"] | int | None
 
 
 class UserDoc(BaseModel):
-    """Application user document."""
+    """Application user record."""
 
-    id: str = Field(alias="_id")
+    id: str
     firebase_uid: str
     email: str | None = None
     display_name: str | None = None
@@ -23,13 +28,12 @@ class UserDoc(BaseModel):
     quota_override: QuotaOverride = None
     created_at: datetime
     last_seen_at: datetime
-    schema_version: int = 1
 
 
 class StudentProfileDoc(BaseModel):
-    """Student onboarding/profile document."""
+    """Student onboarding/profile record."""
 
-    id: str = Field(alias="_id")
+    id: str
     user_id: str
     firebase_uid: str
     board: str
@@ -39,4 +43,3 @@ class StudentProfileDoc(BaseModel):
     onboarding_completed: bool = True
     created_at: datetime
     updated_at: datetime
-    schema_version: int = 1

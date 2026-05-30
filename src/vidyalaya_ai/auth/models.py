@@ -12,7 +12,9 @@ class AuthenticatedUser(BaseModel):
 
     user_id: str
     firebase_uid: str | None = None
-    mongo_id: str | None = None
+    # Internal DB primary key (Postgres users.id); distinct from the Firebase
+    # user_id above, which is the external identity.
+    db_id: str | None = None
     email: str | None = None
     name: str | None = None
     role: str = "student"

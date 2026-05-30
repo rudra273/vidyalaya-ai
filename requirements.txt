@@ -8,7 +8,10 @@ langchain-openai
 fastapi
 uvicorn
 firebase-admin
-motor
-pymongo
 langgraph
-langgraph-checkpoint-mongodb
+langgraph-checkpoint-postgres
+sqlalchemy[asyncio]
+asyncpg
+psycopg[binary]
+psycopg-pool
+alembic

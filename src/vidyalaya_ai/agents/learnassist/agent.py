@@ -20,7 +20,8 @@ from vidyalaya_ai.llm import LLMConfig, create_chat_model
 logger = logging.getLogger("vidyalaya_ai.agents")
 
 # How many recent messages to send to the model (~5 exchanges). Full history is
-# always kept in MongoDB; this only bounds what each request sends to the LLM.
+# always kept in the checkpointer; this only bounds what each request sends to
+# the LLM.
 MAX_MODEL_MESSAGES = 10
 
 

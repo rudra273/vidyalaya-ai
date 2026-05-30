@@ -5,6 +5,7 @@ from vidyalaya_ai.agents.learnassist import (
     LearnAssistResult,
     close_checkpointer,
     get_agent,
+    initialize_checkpointer,
     run_learnassist,
 )
 
@@ -14,5 +15,6 @@ __all__ = [
     "LearnAssistResult",
     "close_checkpointer",
     "get_agent",
+    "initialize_checkpointer",
     "run_learnassist",
 ]
