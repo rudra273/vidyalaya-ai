@@ -181,12 +181,105 @@ can ship in any order.
 
 ---
 
+## 4b. Channel memory architecture (post-launch correctness fix)
+
+### Problem observed
+A single lifelong thread per student (`thread_id = learnassist:{firebase_uid}`) makes
+**every prior turn — including failed/timed-out ones and other subjects — leak into the
+next answer**. Symptoms:
+- "hi" answered a previous question about photosynthesis/chapters (a turn that had
+  **timed out** but was still persisted by the checkpointer).
+- Switching the requested book from science to maths still returned science answers,
+  because the recent conversation window was full of science.
+
+Root cause is **not** model power or the trim window size. Trimming bounds *how much*
+stale context is sent, not *whether* it's stale. The window contained (a) a poisoned
+failed turn and (b) another subject's turns. The model used them exactly as instructed.
+
+### Design: channel = memory boundary; thread is invisible plumbing
+A **channel** is a place the student returns to (General, or a subject). The student
+never manages threads/sessions ("new chat"/"clear") — they just pick a channel. The
+server derives the thread deterministically:
+
+```
+thread_id = {agent}:{firebase_uid}:{board}:{class_no}:{channel}
+```
+
+`board`/`class_no` are in the key (not just the uid) because `student_profiles` is
+**updateable** — a class promotion, re-onboard, or board switch must NOT inherit old
+memory. Longer keys are cheap; wrong memory is expensive.
+
+Examples (one student):
+```
+learnassist:uid123:scert_odisha:8:general    # ask anything, cross-subject
+learnassist:uid123:scert_odisha:8:science    # science only
+learnassist:uid123:scert_odisha:8:maths      # maths only
+tutor:uid123:scert_odisha:8:science          # future Tutor agent, science only
+```
+
+Rules:
+- **General** is its own channel and does **not** share memory with subject channels.
+- Each **subject channel** is isolated → switching subject can't leak (structural fix).
+- **Tutor** (future) is a separate `agent` prefix reusing the same scheme, so its
+  pedagogical state never pollutes Q&A memory.
+- Frontend surfaces channels as tabs (`[General] [Science] [Maths] …`); **screen =
+  memory** (what's visible always matches what the model remembers).
+
+### Request contract: `channel` is the single source of truth
+`channel` is authoritative; the server derives `subject` from it. We do **not** accept
+both a `channel` and an independent free-form `subject` — two fields that can disagree
+are how this bug class returns.
+
+```jsonc
+{ "channel": "science", "message": "explain chapter 1" }
+// -> subject = "science"; thread = ...:8:science; retrieval filtered to science
+
+{ "channel": "general", "message": "hi" }
+// -> subject = null; thread = ...:8:general; retrieval unfiltered
+```
+Inside a subject channel the subject filter is **enforced** — never silently
+"search all subjects".
+
+### Reliability: prevent/clean incomplete turns (not write-side rollback)
+`AsyncPostgresSaver` exposes `adelete_thread` (whole thread) and `aprune`, but **no
+per-checkpoint delete by id** — so a failed turn cannot be surgically rolled back on
+the write side without nuking the whole conversation. Instead we **clean incomplete
+turns on read**, in the `before_model` healing middleware, which already runs each turn
+and is the mechanism we trust. This also covers process crashes, not just timeouts.
+
+Healing is **lazy/on-read**: it cleans what the *model* sees. The poisoned checkpoint
+may briefly remain in Postgres until the next turn heals it — acceptable because the
+clean history source of truth is the `messages` table (chatlog), read separately.
+
+### Phases
+**Phase A — reliability (ship first, no API/app change):**
+- Harden `_heal_history` to also drop a dangling **HumanMessage with no completed
+  answer** (currently it only strips orphaned tool calls), so a timed-out/crashed turn
+  can't leak into the next, new question.
+- Stop greetings/small-talk from triggering retrieval.
+- Make the latest user message authoritative over stale context.
+- Tests: `timeout → next "hi"` must not answer the prior question.
+
+**Phase B — channels (structural fix + product vision):**
+- Add `channel` to the request (default `general`); subject channels require a known
+  subject value, derived from `channel` (single source of truth, no free-form subject).
+- Thread key `{agent}:{uid}:{board}:{class_no}:{channel}`, built by one shared
+  `build_thread_id` helper used by both the chat and history endpoints (no drift).
+- Enforce subject filter inside subject channels; never silently search all subjects.
+- `GET /me/history?channel=…` scopes display history to that channel's thread
+  (board/class taken from the profile), so each tab shows only its own messages
+  (screen = the model's per-channel memory).
+
+**Phase C — future:** Tutor agent reuses the key scheme with a `tutor:` prefix. No rework.
+
+---
+
 ## 5. What stays the same
 
 - The LangGraph agent design (create_agent, tools, trim, heal, dynamic prompt) — unchanged.
 - Qdrant retrieval + Gemini embeddings — unchanged.
-- The `/learnassist/chat` request/response contract — unchanged (additive `usage` already present).
-- "One continuous chat per student" UX — unchanged.
+- "One continuous chat per student" UX — superseded by §4b channels (General stays the
+  default channel, so the single-chat experience is preserved until tabs ship).
 
 ## 6. Out of scope (future)
 

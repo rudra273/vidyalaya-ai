@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from vidyalaya_ai.agents import build_thread_id
 from vidyalaya_ai.api.dependencies import get_current_user
+from vidyalaya_ai.api.schemas.learnassist import GENERAL_CHANNEL, KNOWN_CHANNELS, KNOWN_SUBJECTS
 from vidyalaya_ai.api.schemas.me import (
     HistoryMessage,
     HistoryResponse,
@@ -63,25 +65,58 @@ async def read_usage(
 
 @router.get("/history", response_model=HistoryResponse)
 async def read_history(
+    board: str = Query(..., min_length=1, description="Same board the chat used."),
+    class_no: int = Query(..., ge=1, le=12, description="Same class the chat used."),
     limit: int = Query(default=30, ge=1, le=100),
     before: int | None = Query(
         default=None,
         ge=1,
         description="Message id cursor; returns messages older than this id.",
     ),
+    channel: str = Query(
+        default=GENERAL_CHANNEL,
+        description="Channel/tab to load history for: '"
+        + GENERAL_CHANNEL
+        + "' or one of: "
+        + ", ".join(sorted(KNOWN_SUBJECTS)),
+    ),
     current_user: AuthenticatedUser = Depends(get_current_user),
 ) -> HistoryResponse:
-    """Return the student's chat history (oldest -> newest) for scroll-back.
+    """Return one channel's chat history (oldest -> newest) for scroll-back.
 
-    Single continuous chat per student, so no thread param. Page backwards by
-    passing the returned ``next_before`` as ``before`` to load older messages.
+    History is scoped to ``channel`` so each tab shows only its own messages,
+    matching the agent's per-channel memory. The client passes the same
+    ``board``/``class_no``/``channel`` it sends on chat, so the thread id is rebuilt
+    with no extra DB read. Page backwards by passing the returned ``next_before`` as
+    ``before`` to load older messages.
     """
     firebase_uid = current_user.firebase_uid or current_user.user_id
+
+    normalized_channel = channel.strip().lower() or GENERAL_CHANNEL
+    if normalized_channel not in KNOWN_CHANNELS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="channel must be '"
+            + GENERAL_CHANNEL
+            + "' or one of: "
+            + ", ".join(sorted(KNOWN_SUBJECTS)),
+        )
+
+    # Rebuild the exact thread id the chat endpoint wrote under, from the same
+    # request inputs the client already has - no profile lookup on this path.
+    thread_id = build_thread_id(
+        firebase_uid=firebase_uid,
+        board=board,
+        class_no=class_no,
+        channel=normalized_channel,
+    )
+
     rows = await get_history(
         firebase_uid=firebase_uid,
         agent=AGENT,
         limit=limit,
         before_id=before,
+        thread_id=thread_id,
     )
     # A full page implies there may be older messages; the oldest id in this page
     # (rows are chronological) is the cursor for the previous page.

@@ -6,7 +6,11 @@ from vidyalaya_ai.agents.learnassist.checkpointer import (
     get_checkpointer,
     initialize_checkpointer,
 )
-from vidyalaya_ai.agents.learnassist.context import LearnAssistContext
+from vidyalaya_ai.agents.learnassist.context import (
+    AGENT,
+    LearnAssistContext,
+    build_thread_id,
+)
 from vidyalaya_ai.agents.learnassist.runner import (
     LearnAssistResult,
     TurnUsage,
@@ -15,7 +19,9 @@ from vidyalaya_ai.agents.learnassist.runner import (
 
 
 __all__ = [
+    "AGENT",
     "LearnAssistContext",
+    "build_thread_id",
     "LearnAssistResult",
     "TurnUsage",
     "build_agent",

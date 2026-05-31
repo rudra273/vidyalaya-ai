@@ -59,41 +59,67 @@ async def _trim_to_recent(request: Any, handler: Any) -> Any:
     return await handler(request.override(messages=trimmed or request.messages))
 
 
-@before_model
-def _heal_history(state: dict, runtime: Any) -> dict | None:
-    """Drop an orphaned tool turn left by a previous crashed turn.
+def heal_messages(messages: list[Any]) -> list[str]:
+    """Return ids of messages belonging to an incomplete previous turn, if any.
 
-    A turn that died after a tool call but before its answer (e.g. token limit)
-    leaves a dangling AIMessage(tool_calls)+ToolMessage with no final answer. Left
-    in history it wastes a tool result and leaks stale context into the next, new
-    question.
+    A turn that died before producing its final answer (e.g. the request timed
+    out mid-flight, or the process crashed) is still persisted by the
+    checkpointer. It leaves one of:
+      - an orphaned ``AIMessage(tool_calls)`` (+ ``ToolMessage``) with no answer, or
+      - a bare ``HumanMessage`` whose answer never came.
+    Left in history, this incomplete turn leaks stale context into the next, new
+    question - this is what made a fresh "hi" answer a previous, timed-out
+    textbook question.
 
-    Loop-safety: we only strip orphans that sit BEFORE the latest HumanMessage.
-    The current turn's own in-progress tool call/result come AFTER the latest
-    human message, so they are never touched - this hook can run on every model
-    step without ever removing the work the agent is mid-way through.
+    We treat the run of messages BEFORE the latest human turn as a sequence of
+    completed turns. Walking back from there, we collect every trailing message
+    that is part of an *incomplete* turn - tool calls/results AND the dangling
+    ``HumanMessage`` that started it - stopping at the first terminal answer (an
+    ``AIMessage`` with no ``tool_calls``), which marks the last good turn.
+
+    Loop-safety: only messages strictly BEFORE the latest ``HumanMessage`` are
+    considered. The current turn's own in-progress human/tool/AI messages sit AT
+    or AFTER that index, so they are never returned - this can run on every model
+    step without removing the work the agent is mid-way through.
+
+    Pure and side-effect free so it can be unit-tested directly; the
+    ``@before_model`` wrapper below adapts it to the middleware interface.
     """
-    messages = state.get("messages", [])
+    from langchain_core.messages import HumanMessage
+
     last_human = _last_human_index(messages)
     if last_human <= 0:
-        return None
+        return []
 
-    # Look at the run of messages immediately before the latest human turn.
     remove_ids: list[str] = []
     for message in reversed(messages[:last_human]):
-        if isinstance(message, ToolMessage):
-            remove_ids.append(message.id)
+        # A terminal AI answer (no pending tool calls) ends the last good turn.
+        if isinstance(message, AIMessage) and not getattr(message, "tool_calls", None):
+            break
+        # Everything else trailing here belongs to an incomplete turn: orphaned
+        # tool calls/results, plus the HumanMessage that started the dead turn.
+        if isinstance(message, (ToolMessage, AIMessage, HumanMessage)):
+            if message.id:
+                remove_ids.append(message.id)
             continue
-        if isinstance(message, AIMessage) and getattr(message, "tool_calls", None):
-            remove_ids.append(message.id)
-            continue
-        break  # reached a complete message; nothing orphaned before the human turn
+        break  # any other terminal message ends the last good turn
 
+    return remove_ids
+
+
+@before_model
+def _heal_history(state: dict, runtime: Any) -> dict | None:
+    """Drop an incomplete previous turn left by a crash or timeout (see
+    :func:`heal_messages`)."""
+    remove_ids = heal_messages(state.get("messages", []))
     if not remove_ids:
         return None
 
-    logger.warning("Healing thread: dropping %d orphaned message(s)", len(remove_ids))
-    return {"messages": [RemoveMessage(id=mid) for mid in remove_ids if mid]}
+    logger.warning(
+        "Healing thread: dropping %d message(s) from an incomplete previous turn",
+        len(remove_ids),
+    )
+    return {"messages": [RemoveMessage(id=mid) for mid in remove_ids]}
 
 
 def _last_human_index(messages: list[Any]) -> int:

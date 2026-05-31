@@ -143,7 +143,7 @@ Request:
   "message": "କୋଷ କିଏ ଆବିଷ୍କାର କରିଥିଲେ?",
   "board": "scert_odisha",
   "class_no": 8,
-  "subject": null,
+  "channel": "science",
   "language": "or",
   "debug": true
 }
@@ -160,7 +160,7 @@ class_no
 Optional fields:
 
 ```text
-subject
+channel
 language
 debug
 ```
@@ -170,7 +170,15 @@ debug
 - `message` must not be empty and must be at most 2000 characters.
 - `board` must be `scert_odisha`.
 - `class_no` must be 1 through 12.
-- `subject` is optional. If missing or null, retrieval searches across subjects for the class.
+- `channel` selects the conversation and its subject scope (single source of truth):
+  - `"general"` (default if missing/empty): cross-subject "ask anything"; no subject filter.
+  - a known subject (`science`, `maths`, `english`, `hindi`, `odia`, `sanskrit`,
+    `social_science`): that subject only; retrieval is filtered to it.
+  - any other value is rejected (422). There is **no** separate `subject` field — the
+    server derives the subject from `channel`, so the two can never disagree.
+- Memory is scoped per `(board, class_no, channel)`: each is its own conversation
+  thread (`thread_id = learnassist:{uid}:{board}:{class_no}:{channel}`), so subjects
+  never leak into each other and a class/board change starts fresh memory.
 - `language` is optional and can guide the answer language.
 - `debug` controls whether context blocks are returned.
 

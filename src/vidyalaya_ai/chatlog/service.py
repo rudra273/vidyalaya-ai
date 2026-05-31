@@ -101,12 +101,16 @@ async def get_history(
     agent: str,
     limit: int,
     before_id: int | None = None,
+    thread_id: str | None = None,
 ) -> list[MessageView]:
     """Return a page of the student's chat history, oldest -> newest.
 
     Pages backwards from ``before_id`` (a message id; exclusive) for infinite
     scroll-back: fetch the newest ``limit`` rows older than the cursor, then
     return them in chronological order for display.
+
+    When ``thread_id`` is given, history is scoped to that single channel/thread so
+    each tab shows only its own messages (screen = the model's per-channel memory).
     """
     async with session_scope() as session:
         stmt = (
@@ -115,6 +119,8 @@ async def get_history(
             .order_by(Message.id.desc())
             .limit(limit)
         )
+        if thread_id is not None:
+            stmt = stmt.where(Message.thread_id == thread_id)
         if before_id is not None:
             stmt = stmt.where(Message.id < before_id)
         rows = (await session.execute(stmt)).scalars().all()

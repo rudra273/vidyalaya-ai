@@ -6,7 +6,7 @@ import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 
-from vidyalaya_ai.agents import LearnAssistContext, run_learnassist
+from vidyalaya_ai.agents import AGENT, LearnAssistContext, build_thread_id, run_learnassist
 from vidyalaya_ai.api.dependencies import get_current_user
 from vidyalaya_ai.api.schemas.learnassist import LearnAssistChatRequest, LearnAssistChatResponse
 from vidyalaya_ai.api.schemas.me import UsageResponse
@@ -17,7 +17,6 @@ from vidyalaya_ai.quota.service import check_and_increment
 
 logger = logging.getLogger("vidyalaya_ai.api")
 router = APIRouter(prefix="/learnassist", tags=["learnassist"])
-AGENT = "learnassist"
 
 
 @router.post("/chat", response_model=LearnAssistChatResponse)
@@ -28,12 +27,21 @@ async def learnassist_chat(
 ) -> LearnAssistChatResponse:
     """Answer a student query with LearnAssist."""
     firebase_uid = current_user.firebase_uid or current_user.user_id
-    thread_id = f"{AGENT}:{firebase_uid}"
+    # Memory is scoped per channel and per board/class (see build_thread_id): each
+    # (board, class, channel) is its own conversation thread, so subjects never leak
+    # into each other and a class/board change does not inherit old memory.
+    thread_id = build_thread_id(
+        firebase_uid=firebase_uid,
+        board=payload.board,
+        class_no=payload.class_no,
+        channel=payload.channel,
+    )
     logger.info(
-        "LearnAssist request user=%s board=%s class=%s subject=%s debug=%s",
+        "LearnAssist request user=%s board=%s class=%s channel=%s subject=%s debug=%s",
         firebase_uid,
         payload.board,
         payload.class_no,
+        payload.channel,
         payload.subject,
         payload.debug,
     )
