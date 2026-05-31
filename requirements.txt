@@ -8,6 +8,7 @@ langchain-openai
 fastapi
 uvicorn
 firebase-admin
+streamlit
 langgraph
 langgraph-checkpoint-postgres
 sqlalchemy[asyncio]
