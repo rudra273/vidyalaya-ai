@@ -14,24 +14,29 @@ KNOWN_SUBJECTS = frozenset(
     {"english", "hindi", "maths", "odia", "sanskrit", "science", "social_science"}
 )
 
-# The "ask anything" channel: cross-subject Q&A, no subject filter. Distinct from
-# the subject channels so its memory never mixes with theirs.
-GENERAL_CHANNEL = "general"
+# A "channel" is the agent/product surface the student is talking to. The current
+# study helper is "learn_assist"; the future tutoring agent will be "tutor".
+LEARN_ASSIST_CHANNEL = "learn_assist"
+KNOWN_CHANNELS = frozenset({LEARN_ASSIST_CHANNEL})
 
-# Valid channel values: the general channel, or any known subject.
-KNOWN_CHANNELS = frozenset({GENERAL_CHANNEL}) | KNOWN_SUBJECTS
+# Used in the thread id (and retrieval) when the student has not picked a subject -
+# the cross-subject "ask anything" mode. Distinct, named scope so its memory never
+# mixes with a specific subject's.
+GENERAL_SUBJECT = "general"
 
 
 class LearnAssistChatRequest(BaseModel):
     """LearnAssist chat request.
 
-    ``channel`` is the single source of truth for *which conversation* this is and
-    *which subject* (if any) retrieval is scoped to. The server derives the subject
-    filter and the memory thread from it - there is deliberately no separate
-    free-form ``subject`` field that could disagree with the channel.
+    Two orthogonal selectors:
+    - ``channel``: which agent/surface this is (``learn_assist`` today; ``tutor``
+      later). It is the top-level prefix of the memory thread.
+    - ``subject``: the academic subject this conversation is about. Optional - when
+      omitted the conversation is the cross-subject "ask anything" thread and
+      retrieval is not filtered to a subject.
 
-    - ``channel="general"`` -> cross-subject "ask anything"; no subject filter.
-    - ``channel="science"`` (any known subject) -> that subject only; filter enforced.
+    Memory is scoped per ``(channel, board, class, subject-or-general)``, so subjects
+    never leak into each other and a class/board change starts fresh.
     """
 
     message: str = Field(
@@ -43,10 +48,18 @@ class LearnAssistChatRequest(BaseModel):
     board: str = Field(..., min_length=1, examples=["scert_odisha"])
     class_no: int = Field(..., ge=1, le=12, examples=[8])
     channel: str = Field(
-        default=GENERAL_CHANNEL,
-        description="Conversation/channel. '" + GENERAL_CHANNEL + "' for cross-subject "
-        "help, or one of: " + ", ".join(sorted(KNOWN_SUBJECTS)) + ".",
-        examples=[GENERAL_CHANNEL, "science"],
+        default=LEARN_ASSIST_CHANNEL,
+        description="Agent/surface. Currently only '" + LEARN_ASSIST_CHANNEL + "'.",
+        examples=[LEARN_ASSIST_CHANNEL],
+    )
+    subject: str | None = Field(
+        default=None,
+        max_length=64,
+        description="Optional academic subject. One of: "
+        + ", ".join(sorted(KNOWN_SUBJECTS))
+        + ". Omit/null for cross-subject 'ask anything' (no subject filter). "
+        "Unknown values are treated as no subject.",
+        examples=["science", None],
     )
     language: str | None = Field(default=None, examples=["en", "or", None])
     debug: bool = False
@@ -74,31 +87,37 @@ class LearnAssistChatRequest(BaseModel):
     @field_validator("channel", mode="before")
     @classmethod
     def normalize_channel(cls, value: str | None) -> str:
-        """Normalize/validate the channel; empty or missing means the general channel."""
+        """Normalize/validate the channel (agent); empty or missing -> learn_assist."""
         if value is None:
-            return GENERAL_CHANNEL
+            return LEARN_ASSIST_CHANNEL
         if not isinstance(value, str):
             raise ValueError("channel must be a string")
         normalized = value.strip().lower()
         if not normalized:
-            return GENERAL_CHANNEL
+            return LEARN_ASSIST_CHANNEL
         if normalized not in KNOWN_CHANNELS:
             raise ValueError(
-                "channel must be '"
-                + GENERAL_CHANNEL
-                + "' or one of: "
-                + ", ".join(sorted(KNOWN_SUBJECTS))
+                "channel must be one of: " + ", ".join(sorted(KNOWN_CHANNELS))
             )
         return normalized
 
-    @property
-    def subject(self) -> str | None:
-        """The retrieval subject filter derived from the channel.
+    @field_validator("subject")
+    @classmethod
+    def normalize_subject(cls, value: str | None) -> str | None:
+        """Lowercase the subject; drop unknown values so they don't filter to nothing."""
+        if not value:
+            return None
+        normalized = value.lower()
+        return normalized if normalized in KNOWN_SUBJECTS else None
 
-        The general channel has no subject filter; a subject channel filters to
-        exactly its subject (never "search all subjects").
+    @property
+    def thread_subject(self) -> str:
+        """The subject segment used in the memory thread id.
+
+        A concrete subject when one is selected, else the literal ``general`` so the
+        cross-subject conversation is its own named, isolated thread.
         """
-        return None if self.channel == GENERAL_CHANNEL else self.channel
+        return self.subject or GENERAL_SUBJECT
 
 
 class LearnAssistChatResponse(BaseModel):

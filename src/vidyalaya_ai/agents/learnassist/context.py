@@ -14,19 +14,27 @@ AGENT = "learnassist"
 
 
 def build_thread_id(
-    *, firebase_uid: str, board: str, class_no: int, channel: str
+    *,
+    channel: str,
+    firebase_uid: str,
+    board: str,
+    class_no: int,
+    subject: str,
 ) -> str:
-    """Build the memory thread id for a (student, board, class, channel).
+    """Build the memory thread id for a conversation.
 
-    Memory is scoped per channel and per board/class so subjects never leak into
-    each other and a class/board change starts fresh. ``board``/``class_no`` are in
-    the key (not just the uid) because the student's profile is updateable.
+    Shape: ``{channel}:{uid}:{board}:{class_no}:{subject}`` where ``channel`` is the
+    agent/surface (``learn_assist``, ``tutor`` …) and ``subject`` is the academic
+    subject or the literal ``general`` for the cross-subject thread. Scoping per
+    (channel, board, class, subject) keeps subjects from leaking into each other and
+    makes a class/board change start fresh - ``board``/``class_no`` are in the key
+    (not just the uid) because the profile is updateable.
 
     Single source of truth for the thread id: both the chat endpoint (which writes
-    memory) and the history endpoint (which reads display history) call this, so
-    the two can never drift out of sync.
+    memory) and the history endpoint (which reads display history) call this, so the
+    two can never drift out of sync.
     """
-    return f"{AGENT}:{firebase_uid}:{board}:{class_no}:{channel}"
+    return f"{channel}:{firebase_uid}:{board}:{class_no}:{subject}"
 
 
 @dataclass

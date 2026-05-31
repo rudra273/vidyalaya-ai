@@ -182,7 +182,8 @@ class Message(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     firebase_uid: Mapped[str] = mapped_column(String(128))
-    thread_id: Mapped[str] = mapped_column(String(160))
+    # {channel}:{uid<=128}:{board}:{class}:{subject} -> up to ~172 chars; 200 leaves headroom.
+    thread_id: Mapped[str] = mapped_column(String(200))
     agent: Mapped[str] = mapped_column(String(64))
     role: Mapped[str] = mapped_column(String(16))  # "human" | "ai"
     content: Mapped[str] = mapped_column(Text)

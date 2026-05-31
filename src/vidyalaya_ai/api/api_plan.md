@@ -143,7 +143,8 @@ Request:
   "message": "କୋଷ କିଏ ଆବିଷ୍କାର କରିଥିଲେ?",
   "board": "scert_odisha",
   "class_no": 8,
-  "channel": "science",
+  "channel": "learn_assist",
+  "subject": "science",
   "language": "or",
   "debug": true
 }
@@ -161,6 +162,7 @@ Optional fields:
 
 ```text
 channel
+subject
 language
 debug
 ```
@@ -170,15 +172,17 @@ debug
 - `message` must not be empty and must be at most 2000 characters.
 - `board` must be `scert_odisha`.
 - `class_no` must be 1 through 12.
-- `channel` selects the conversation and its subject scope (single source of truth):
-  - `"general"` (default if missing/empty): cross-subject "ask anything"; no subject filter.
-  - a known subject (`science`, `maths`, `english`, `hindi`, `odia`, `sanskrit`,
-    `social_science`): that subject only; retrieval is filtered to it.
-  - any other value is rejected (422). There is **no** separate `subject` field — the
-    server derives the subject from `channel`, so the two can never disagree.
-- Memory is scoped per `(board, class_no, channel)`: each is its own conversation
-  thread (`thread_id = learnassist:{uid}:{board}:{class_no}:{channel}`), so subjects
-  never leak into each other and a class/board change starts fresh memory.
+- `channel` is the agent/surface the student is talking to. Currently only
+  `"learn_assist"` (default if missing/empty); future agents (e.g. `"tutor"`) will be
+  added here. Any other value is rejected (422).
+- `subject` is the academic subject the conversation is about. Optional:
+  - one of `science`, `maths`, `english`, `hindi`, `odia`, `sanskrit`, `social_science`
+    → retrieval is filtered to that subject.
+  - omitted/null (or unknown) → the cross-subject "general" conversation; no filter.
+- Memory is scoped per `(channel, board, class_no, subject)`: each is its own
+  conversation thread (`thread_id = {channel}:{uid}:{board}:{class_no}:{subject}`,
+  where the subject segment is the chosen subject or the literal `general`), so
+  subjects never leak into each other and a class/board change starts fresh memory.
 - `language` is optional and can guide the answer language.
 - `debug` controls whether context blocks are returned.
 

@@ -27,21 +27,22 @@ async def learnassist_chat(
 ) -> LearnAssistChatResponse:
     """Answer a student query with LearnAssist."""
     firebase_uid = current_user.firebase_uid or current_user.user_id
-    # Memory is scoped per channel and per board/class (see build_thread_id): each
-    # (board, class, channel) is its own conversation thread, so subjects never leak
-    # into each other and a class/board change does not inherit old memory.
+    # Memory is scoped per (channel, board, class, subject) - see build_thread_id -
+    # so subjects never leak into each other and a class/board change starts fresh.
+    # `channel` is the agent/surface; `thread_subject` is the subject or "general".
     thread_id = build_thread_id(
+        channel=payload.channel,
         firebase_uid=firebase_uid,
         board=payload.board,
         class_no=payload.class_no,
-        channel=payload.channel,
+        subject=payload.thread_subject,
     )
     logger.info(
-        "LearnAssist request user=%s board=%s class=%s channel=%s subject=%s debug=%s",
+        "LearnAssist request user=%s channel=%s board=%s class=%s subject=%s debug=%s",
         firebase_uid,
+        payload.channel,
         payload.board,
         payload.class_no,
-        payload.channel,
         payload.subject,
         payload.debug,
     )

@@ -196,14 +196,20 @@ Root cause is **not** model power or the trim window size. Trimming bounds *how 
 stale context is sent, not *whether* it's stale. The window contained (a) a poisoned
 failed turn and (b) another subject's turns. The model used them exactly as instructed.
 
-### Design: channel = memory boundary; thread is invisible plumbing
-A **channel** is a place the student returns to (General, or a subject). The student
-never manages threads/sessions ("new chat"/"clear") — they just pick a channel. The
-server derives the thread deterministically:
+### Design: two selectors (channel = agent, subject = topic); thread is invisible plumbing
+Two orthogonal selectors scope memory; the student never manages threads/sessions
+("new chat"/"clear"):
+- **`channel`** = the agent/surface the student is on (`learn_assist` today, `tutor`
+  later). Top-level prefix of the thread.
+- **`subject`** = the academic subject (science, maths, …). Optional; absent means the
+  cross-subject "general" conversation.
+
+The server derives the thread deterministically:
 
 ```
-thread_id = {agent}:{firebase_uid}:{board}:{class_no}:{channel}
+thread_id = {channel}:{firebase_uid}:{board}:{class_no}:{subject}
 ```
+where the subject segment is the chosen subject or the literal `general`.
 
 `board`/`class_no` are in the key (not just the uid) because `student_profiles` is
 **updateable** — a class promotion, re-onboard, or board switch must NOT inherit old
@@ -211,34 +217,34 @@ memory. Longer keys are cheap; wrong memory is expensive.
 
 Examples (one student):
 ```
-learnassist:uid123:scert_odisha:8:general    # ask anything, cross-subject
-learnassist:uid123:scert_odisha:8:science    # science only
-learnassist:uid123:scert_odisha:8:maths      # maths only
-tutor:uid123:scert_odisha:8:science          # future Tutor agent, science only
+learn_assist:uid123:scert_odisha:8:general    # ask anything, cross-subject
+learn_assist:uid123:scert_odisha:8:science    # science only
+learn_assist:uid123:scert_odisha:8:maths      # maths only
+tutor:uid123:scert_odisha:8:science           # future Tutor agent, science only
 ```
 
 Rules:
-- **General** is its own channel and does **not** share memory with subject channels.
-- Each **subject channel** is isolated → switching subject can't leak (structural fix).
-- **Tutor** (future) is a separate `agent` prefix reusing the same scheme, so its
+- The **general** subject thread does **not** share memory with specific-subject threads.
+- Each **subject** thread is isolated → switching subject can't leak (structural fix).
+- **Tutor** (future) is a separate `channel` prefix reusing the same scheme, so its
   pedagogical state never pollutes Q&A memory.
-- Frontend surfaces channels as tabs (`[General] [Science] [Maths] …`); **screen =
-  memory** (what's visible always matches what the model remembers).
+- Frontend surfaces these as tabs; **screen = memory** (what's visible always matches
+  what the model remembers).
 
-### Request contract: `channel` is the single source of truth
-`channel` is authoritative; the server derives `subject` from it. We do **not** accept
-both a `channel` and an independent free-form `subject` — two fields that can disagree
-are how this bug class returns.
+### Request contract
+`channel` and `subject` are separate fields with separate jobs — `channel` picks the
+agent, `subject` picks the topic. There is no derivation between them, so they can't
+silently disagree.
 
 ```jsonc
-{ "channel": "science", "message": "explain chapter 1" }
-// -> subject = "science"; thread = ...:8:science; retrieval filtered to science
+{ "channel": "learn_assist", "subject": "science", "message": "explain chapter 1" }
+// -> thread = learn_assist:...:8:science; retrieval filtered to science
 
-{ "channel": "general", "message": "hi" }
-// -> subject = null; thread = ...:8:general; retrieval unfiltered
+{ "channel": "learn_assist", "message": "hi" }   // no subject
+// -> thread = learn_assist:...:8:general; retrieval unfiltered
 ```
-Inside a subject channel the subject filter is **enforced** — never silently
-"search all subjects".
+When a subject is given the filter is **enforced**; absent subject → the general
+thread, unfiltered.
 
 ### Reliability: prevent/clean incomplete turns (not write-side rollback)
 `AsyncPostgresSaver` exposes `adelete_thread` (whole thread) and `aprune`, but **no
@@ -261,16 +267,17 @@ clean history source of truth is the `messages` table (chatlog), read separately
 - Tests: `timeout → next "hi"` must not answer the prior question.
 
 **Phase B — channels (structural fix + product vision):**
-- Add `channel` to the request (default `general`); subject channels require a known
-  subject value, derived from `channel` (single source of truth, no free-form subject).
-- Thread key `{agent}:{uid}:{board}:{class_no}:{channel}`, built by one shared
+- Add `channel` (agent; default `learn_assist`) and keep `subject` (optional academic
+  subject) as separate request fields.
+- Thread key `{channel}:{uid}:{board}:{class_no}:{subject|general}`, built by one shared
   `build_thread_id` helper used by both the chat and history endpoints (no drift).
-- Enforce subject filter inside subject channels; never silently search all subjects.
-- `GET /me/history?channel=…` scopes display history to that channel's thread
-  (board/class taken from the profile), so each tab shows only its own messages
-  (screen = the model's per-channel memory).
+- Enforce the subject filter when a subject is given; absent subject → the general
+  (unfiltered) thread.
+- `GET /me/history?channel=…&subject=…&board=…&class_no=…` scopes display history to
+  the same thread, so each tab shows only its own messages (screen = model memory).
+  board/class are passed by the client (same values it sends on chat) — no profile read.
 
-**Phase C — future:** Tutor agent reuses the key scheme with a `tutor:` prefix. No rework.
+**Phase C — future:** Tutor agent reuses the key scheme with a `tutor` channel. No rework.
 
 ---
 
