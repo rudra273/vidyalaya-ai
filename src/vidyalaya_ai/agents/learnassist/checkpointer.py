@@ -99,6 +99,18 @@ def get_checkpointer() -> Any:
     return _checkpointer
 
 
+async def reset_thread_checkpoint(thread_id: str) -> None:
+    """Delete all LangGraph checkpoint state for this thread.
+
+    Uses the checkpointer's built-in ``adelete_thread``. Works for both
+    ``AsyncPostgresSaver`` (Postgres) and ``InMemorySaver`` (dev). The
+    permanent ``messages`` table is never touched.
+    """
+    checkpointer = get_checkpointer()
+    await checkpointer.adelete_thread(thread_id)
+    logger.info("Checkpoint reset for thread=%s", thread_id)
+
+
 async def close_checkpointer() -> None:
     """Close the async pool used by the checkpointer."""
     global _pool, _checkpointer

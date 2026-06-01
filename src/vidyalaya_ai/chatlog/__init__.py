@@ -3,8 +3,9 @@
 from vidyalaya_ai.chatlog.service import (
     MessageView,
     get_history,
+    get_last_message_at,
     persist_turn,
 )
 
 
-__all__ = ["MessageView", "get_history", "persist_turn"]
+__all__ = ["MessageView", "get_history", "get_last_message_at", "persist_turn"]

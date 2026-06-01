@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from vidyalaya_ai.db.engine import session_scope
 from vidyalaya_ai.db.models import StudentProfile, User
-from vidyalaya_ai.users.models import QuotaOverride, StudentProfileDoc, UserDoc
+from vidyalaya_ai.users.models import PreferencesDoc, QuotaOverride, StudentProfileDoc, UserDoc
 
 
 def _now() -> datetime:
@@ -120,6 +120,55 @@ async def get_profile(firebase_uid: str) -> StudentProfileDoc | None:
         )
         profile = result.scalar_one_or_none()
         return _profile_to_doc(profile) if profile is not None else None
+
+
+async def get_preferences(firebase_uid: str) -> PreferencesDoc:
+    """Return the student's session memory preferences.
+
+    Falls back to defaults when the student has no profile yet so callers never
+    need to handle None — a student without a profile gets the global defaults.
+    """
+    async with session_scope() as session:
+        result = await session.execute(
+            select(StudentProfile).where(StudentProfile.firebase_uid == firebase_uid)
+        )
+        profile = result.scalar_one_or_none()
+        if profile is None:
+            # No profile → no student preference; caller uses env default.
+            return PreferencesDoc(has_preference=False)
+        return PreferencesDoc(
+            memory_reset_enabled=profile.memory_reset_enabled,
+            memory_reset_minutes=profile.memory_reset_minutes,
+            has_preference=True,
+        )
+
+
+async def upsert_preferences(
+    *,
+    firebase_uid: str,
+    memory_reset_enabled: bool,
+    memory_reset_minutes: int,
+) -> PreferencesDoc:
+    """Update only the session memory preference columns on the student's profile.
+
+    Raises 404 if the student has no profile (preferences require onboarding first).
+    """
+    now = _now()
+    async with session_scope() as session:
+        result = await session.execute(
+            select(StudentProfile).where(StudentProfile.firebase_uid == firebase_uid)
+        )
+        profile = result.scalar_one_or_none()
+        if profile is None:
+            raise ValueError("Profile not found; complete onboarding before updating preferences.")
+        profile.memory_reset_enabled = memory_reset_enabled
+        profile.memory_reset_minutes = memory_reset_minutes
+        profile.updated_at = now
+        await session.commit()
+        return PreferencesDoc(
+            memory_reset_enabled=profile.memory_reset_enabled,
+            memory_reset_minutes=profile.memory_reset_minutes,
+        )
 
 
 async def upsert_profile(

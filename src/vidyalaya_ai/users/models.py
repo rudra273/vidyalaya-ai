@@ -43,3 +43,16 @@ class StudentProfileDoc(BaseModel):
     onboarding_completed: bool = True
     created_at: datetime
     updated_at: datetime
+
+
+class PreferencesDoc(BaseModel):
+    """Session memory preferences for a student.
+
+    ``has_preference`` is False when the student has no profile yet — the caller
+    should fall back to the global env default rather than treating the defaults
+    here as the student's explicit choice.
+    """
+
+    memory_reset_enabled: bool = True
+    memory_reset_minutes: int = 30
+    has_preference: bool = True

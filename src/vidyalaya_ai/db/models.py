@@ -132,6 +132,10 @@ class StudentProfile(Base):
     class_no: Mapped[int] = mapped_column(Integer)
     preferred_language: Mapped[str] = mapped_column(String(32))
     school_name: Mapped[str | None] = mapped_column(String(128), default=None)
+    # Session memory preferences — stored here (not a separate table) since they
+    # are set once during onboarding/settings and queried on every chat request.
+    memory_reset_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    memory_reset_minutes: Mapped[int] = mapped_column(Integer, default=30)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -168,10 +172,10 @@ class DailyUsage(Base):
 class Message(Base):
     """Permanent, display-only chat history for scroll-back.
 
-    Independent of the agent checkpointer: checkpoints can be pruned for cost
-    without losing what the student sees. One continuous chat per student, so
-    ``thread_id`` is currently ``learnassist:{firebase_uid}`` but stored so other
-    agents/threads can be added later.
+    Independent of the agent checkpointer: checkpoints can be pruned or reset
+    for cost/session management without losing what the student sees in the UI.
+    History is scoped per channel/board/class/subject via ``thread_id``:
+    ``{channel}:{firebase_uid}:{board}:{class_no}:{subject}``.
     """
 
     __tablename__ = "messages"

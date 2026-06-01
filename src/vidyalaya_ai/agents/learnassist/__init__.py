@@ -5,6 +5,7 @@ from vidyalaya_ai.agents.learnassist.checkpointer import (
     close_checkpointer,
     get_checkpointer,
     initialize_checkpointer,
+    reset_thread_checkpoint,
 )
 from vidyalaya_ai.agents.learnassist.context import (
     AGENT,
@@ -29,5 +30,6 @@ __all__ = [
     "get_agent",
     "get_checkpointer",
     "initialize_checkpointer",
+    "reset_thread_checkpoint",
     "run_learnassist",
 ]

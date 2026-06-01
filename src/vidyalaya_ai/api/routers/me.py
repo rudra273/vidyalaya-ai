@@ -15,6 +15,8 @@ from vidyalaya_ai.api.schemas.learnassist import (
 from vidyalaya_ai.api.schemas.me import (
     HistoryMessage,
     HistoryResponse,
+    PreferencesRequest,
+    PreferencesResponse,
     ProfileRequest,
     ProfileResponse,
     UsageResponse,
@@ -22,7 +24,7 @@ from vidyalaya_ai.api.schemas.me import (
 from vidyalaya_ai.auth.models import AuthenticatedUser
 from vidyalaya_ai.chatlog import get_history
 from vidyalaya_ai.quota.service import get_usage
-from vidyalaya_ai.users.repository import get_profile, upsert_profile
+from vidyalaya_ai.users.repository import get_preferences, get_profile, upsert_preferences, upsert_profile
 
 
 router = APIRouter(prefix="/me", tags=["me"])
@@ -144,6 +146,45 @@ async def read_history(
             for r in rows
         ],
         next_before=next_before,
+    )
+
+
+@router.get("/preferences", response_model=PreferencesResponse)
+async def read_preferences(
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> PreferencesResponse:
+    """Return the student's session memory preferences."""
+    firebase_uid = current_user.firebase_uid or current_user.user_id
+    prefs = await get_preferences(firebase_uid)
+    return PreferencesResponse(
+        memory_reset_enabled=prefs.memory_reset_enabled,
+        memory_reset_minutes=prefs.memory_reset_minutes,
+    )
+
+
+@router.put("/preferences", response_model=PreferencesResponse)
+async def write_preferences(
+    payload: PreferencesRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> PreferencesResponse:
+    """Update the student's session memory preferences.
+
+    Requires an existing profile (complete onboarding first via PUT /me/profile).
+    Manual memory reset via POST /learnassist/memory/reset always works regardless
+    of whether auto-reset is enabled.
+    """
+    firebase_uid = current_user.firebase_uid or current_user.user_id
+    try:
+        prefs = await upsert_preferences(
+            firebase_uid=firebase_uid,
+            memory_reset_enabled=payload.memory_reset_enabled,
+            memory_reset_minutes=payload.memory_reset_minutes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    return PreferencesResponse(
+        memory_reset_enabled=prefs.memory_reset_enabled,
+        memory_reset_minutes=prefs.memory_reset_minutes,
     )
 
 

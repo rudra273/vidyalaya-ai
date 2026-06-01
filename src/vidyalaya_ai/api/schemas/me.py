@@ -78,3 +78,29 @@ class HistoryResponse(BaseModel):
 
     messages: list[HistoryMessage]
     next_before: int | None = None
+
+
+_MINUTES_MIN = 5
+_MINUTES_MAX = 180
+
+
+class PreferencesRequest(BaseModel):
+    """Update session memory preferences."""
+
+    memory_reset_enabled: bool = Field(
+        default=True,
+        description="Whether inactivity auto-reset is enabled.",
+    )
+    memory_reset_minutes: int = Field(
+        default=30,
+        ge=_MINUTES_MIN,
+        le=_MINUTES_MAX,
+        description=f"Inactivity timeout in minutes ({_MINUTES_MIN}–{_MINUTES_MAX}).",
+    )
+
+
+class PreferencesResponse(BaseModel):
+    """Current session memory preferences."""
+
+    memory_reset_enabled: bool
+    memory_reset_minutes: int

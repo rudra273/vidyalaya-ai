@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from vidyalaya_ai.agents import TurnUsage
 from vidyalaya_ai.db.engine import session_scope
@@ -93,6 +93,15 @@ async def persist_turn(
         logger.exception(
             "Failed to persist chat turn uid=%s thread=%s", firebase_uid, thread_id
         )
+
+
+async def get_last_message_at(*, thread_id: str) -> datetime | None:
+    """Return the created_at of the most recent message for this thread, or None."""
+    async with session_scope() as session:
+        result = await session.execute(
+            select(func.max(Message.created_at)).where(Message.thread_id == thread_id)
+        )
+        return result.scalar_one_or_none()
 
 
 async def get_history(

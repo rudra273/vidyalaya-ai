@@ -128,3 +128,56 @@ class LearnAssistChatResponse(BaseModel):
     retrieval: dict[str, Any]
     usage: UsageResponse | None = None
     context_blocks: list[dict[str, Any]] | None = None
+
+
+class MemoryResetRequest(BaseModel):
+    """Request to manually clear the agent's working memory for a thread.
+
+    Mirrors the selectors the chat endpoint uses so the server can reconstruct
+    the exact thread id. The permanent ``messages`` table is never affected.
+    """
+
+    board: str = Field(..., min_length=1, examples=["scert_odisha"])
+    class_no: int = Field(..., ge=1, le=12, examples=[8])
+    channel: str = Field(default=LEARN_ASSIST_CHANNEL, examples=[LEARN_ASSIST_CHANNEL])
+    subject: str | None = Field(
+        default=None,
+        max_length=64,
+        description="Subject to clear, or omit/null for the general thread.",
+        examples=["science", None],
+    )
+
+    @field_validator("board")
+    @classmethod
+    def validate_board(cls, value: str) -> str:
+        if value != "scert_odisha":
+            raise ValueError("board must be one of: scert_odisha")
+        return value
+
+    @field_validator("channel", mode="before")
+    @classmethod
+    def normalize_channel(cls, value: str | None) -> str:
+        if value is None:
+            return LEARN_ASSIST_CHANNEL
+        normalized = str(value).strip().lower() or LEARN_ASSIST_CHANNEL
+        if normalized not in KNOWN_CHANNELS:
+            raise ValueError("channel must be one of: " + ", ".join(sorted(KNOWN_CHANNELS)))
+        return normalized
+
+    @field_validator("subject")
+    @classmethod
+    def normalize_subject(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        normalized = value.lower()
+        return normalized if normalized in KNOWN_SUBJECTS else None
+
+    @property
+    def thread_subject(self) -> str:
+        return self.subject or GENERAL_SUBJECT
+
+
+class MemoryResetResponse(BaseModel):
+    """Response after a manual memory reset."""
+
+    reset: bool
