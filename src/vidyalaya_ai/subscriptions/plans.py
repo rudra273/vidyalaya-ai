@@ -6,7 +6,7 @@ so changing a tier's quota or model is a code change, reviewed and deployed —
 the ``subscriptions`` table only records *which* plan a user holds.
 
 A ``daily_limit`` of ``None`` means unlimited. Free users use the direct Google
-Gemini provider, while paid tiers route the same Gemini 2.0 Flash model through
+Gemini provider, while paid tiers route the same Gemini 2.5 Flash model through
 OpenRouter. Later, paid tiers can be moved to larger models by changing only
 these plan definitions.
 
@@ -30,10 +30,10 @@ class Plan:
 
 
 # Direct Gemini provider model id (LangChain Google provider).
-GOOGLE_GEMINI_2_FLASH = "gemini-2.0-flash"
+GOOGLE_GEMINI_2_5_FLASH = "gemini-2.5-flash"
 
-# OpenRouter model id for the same Gemini 2.0 Flash family.
-OPENROUTER_GEMINI_2_FLASH = "google/gemini-2.0-flash-001"
+# OpenRouter model id for Gemini 2.5 Flash.
+OPENROUTER_GEMINI_2_5_FLASH = "google/gemini-2.5-flash"
 
 
 # free  — low daily cap on direct Gemini, suitable for the free API key.
@@ -44,19 +44,19 @@ PLANS: dict[str, Plan] = {
         key="free",
         daily_limit=3,
         provider="google",
-        model=GOOGLE_GEMINI_2_FLASH,
+        model=GOOGLE_GEMINI_2_5_FLASH,
     ),
     "plus": Plan(
         key="plus",
         daily_limit=25,
         provider="openrouter",
-        model=OPENROUTER_GEMINI_2_FLASH,
+        model=OPENROUTER_GEMINI_2_5_FLASH,
     ),
     "pro": Plan(
         key="pro",
         daily_limit=100,
         provider="openrouter",
-        model=OPENROUTER_GEMINI_2_FLASH,
+        model=OPENROUTER_GEMINI_2_5_FLASH,
     ),
 }
 

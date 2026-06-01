@@ -31,6 +31,27 @@ SYSTEM_PROMPT = (
     "needed passages are already present above -> answer from that existing context\n"
     "- rephrasing/translating your own previous answer ('explain again', 'say it in "
     "English') -> use the prior turn\n\n"
+    "QUERY GENERATION — always do this before calling the tool:\n"
+    "Generate a retrieval query in the native script of the textbook. Use multiple "
+    "keywords and synonyms so the search is richer, not just one word.\n"
+    "- If the student wrote in Roman/transliterated script (e.g. 'kabir das ke dohe', "
+    "'pehla chapter'), convert to the correct native script first.\n"
+    "- Hindi subject -> Devanagari (e.g. 'कबीर दास के दोहे गुरु गोविंद साखी')\n"
+    "- Odia subject -> Odia script (e.g. 'ଜାତୀୟ କବି ବୀରକିଶୋର ଦାସ ଓଡ଼ିଆ ସାହିତ୍ୟ')\n"
+    "- Sanskrit subject -> Devanagari\n"
+    "- English subject -> English\n"
+    "Never pass the student's raw Roman-script message as the query argument.\n\n"
+    "CHAPTER / TOPIC QUESTIONS — two-step retrieval:\n"
+    "When the student asks about a chapter by number or position ('first chapter', "
+    "'chapter 2', 'pehla chapter', 'prathama paatha') and you don't already know "
+    "what that chapter contains:\n"
+    "  Step 1 — search for the table of contents first using the TOC query for the "
+    "subject (see below). Read the result to find the chapter name and page range.\n"
+    "  Step 2 — confirm with the student: 'Chapter 1 is [name]. Shall I explain it?'\n"
+    "  Step 3 — after the student confirms, call the tool again with the chapter name "
+    "and key terms as the query to retrieve the actual content.\n"
+    "Skip step 1 if the student already names the content ('explain kabir das ke dohe') "
+    "or if the TOC was already retrieved earlier in this conversation.\n\n"
     "When you use the tool, ground your answer in the returned passages and cite them "
     "inline as [1], [2], ... in the order shown. If you genuinely did not use the "
     "tool, do not add citation labels. Explain simply, step by step, at a school "
@@ -50,9 +71,22 @@ _LANGUAGE_NAMES = {
     "ta": "Tamil",
 }
 
+# TOC query strings per subject — multiple synonyms in the actual script of that
+# textbook so the embedding hits the suchipatra page even if OCR spelling varies.
+# Odia-medium books (science, maths, social_science) use Odia script only.
+_TOC_QUERIES: dict[str, str] = {
+    "odia": "ସୂଚୀପତ୍ର ବିଷୟ ସୂଚୀ ପାଠ ତାଲିକା ଅଧ୍ୟାୟ",
+    "hindi": "विषय-सूची सूचीपत्र अध्याय पाठ सामग्री",
+    "sanskrit": "विषय-सूची पाठसूची अध्याय सूचीपत्र",
+    "english": "table of contents chapters units lessons index",
+    "maths": "ସୂଚୀପତ୍ର ବିଷୟ ସୂଚୀ ଅଧ୍ୟାୟ ଏକକ",
+    "science": "ସୂଚୀପତ୍ର ବିଷୟ ସୂଚୀ ଅଧ୍ୟାୟ ଏକକ",
+    "social_science": "ସୂଚୀପତ୍ର ବିଷୟ ସୂଚୀ ଅଧ୍ୟାୟ ଏକକ",
+}
+
 
 def build_system_prompt(context: LearnAssistContext) -> str:
-    """Build the per-request system prompt, adding the language rule."""
+    """Build the per-request system prompt, adding the language rule and TOC query."""
     if context.language:
         code = context.language.strip().lower()
         name = _LANGUAGE_NAMES.get(code, context.language)
@@ -62,7 +96,39 @@ def build_system_prompt(context: LearnAssistContext) -> str:
         )
     else:
         language_rule = "Reply in the same language as the student's question."
-    return f"{SYSTEM_PROMPT}\n\n{language_rule}"
+
+    subject_key = (context.subject or "").strip().lower()
+
+    # Tell the LLM exactly what the student has selected so it never asks questions
+    # it already has the answer to ("which subject?", "which book?").
+    if subject_key:
+        context_line = (
+            f"STUDENT CONTEXT: board={context.board}, class={context.class_no}, "
+            f"subject={subject_key}. "
+            f"The subject is already known — never ask the student which subject or book. "
+            f"Always use subject={subject_key} when calling search_textbook."
+        )
+    else:
+        context_line = (
+            f"STUDENT CONTEXT: board={context.board}, class={context.class_no}, "
+            f"subject=not selected (search across all subjects for this class). "
+            f"The student is in 'ask anything' mode — do NOT ask which subject. "
+            f"Just call search_textbook without a subject filter and answer from results."
+        )
+
+    toc_query = _TOC_QUERIES.get(subject_key)
+    if toc_query:
+        toc_rule = (
+            f"TOC QUERY FOR THIS SUBJECT: When you need the table of contents, "
+            f"call search_textbook with exactly this query: \"{toc_query}\""
+        )
+    else:
+        toc_rule = (
+            "TOC QUERY: When you need the table of contents, search using the "
+            "native-script words for 'table of contents', 'chapters', 'index'."
+        )
+
+    return f"{SYSTEM_PROMPT}\n\n{context_line}\n\n{toc_rule}\n\n{language_rule}"
 
 
 def format_context(context_blocks: list[dict[str, Any]], rag_config: RagConfig) -> str:

@@ -1,7 +1,7 @@
 """OpenRouter chat model provider through LangChain.
 
 OpenRouter exposes an OpenAI-compatible API, so we use ``ChatOpenAI`` pointed at
-the OpenRouter base URL. The model id (e.g. ``google/gemini-2.0-flash-001``,
+the OpenRouter base URL. The model id (e.g. ``google/gemini-2.5-flash``,
 ``openai/gpt-4.1-mini``) is set via ``LLM_MODEL`` in .env.
 """
 

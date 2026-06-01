@@ -1,308 +1,235 @@
-# Vidyalaya AI — Launch Readiness Plan
-
-Plan to take LearnAssist (Agent 1) from "working" to "launch-ready": move off MongoDB to
-cheaper Postgres, add error handling, usage/token accounting, subscription-based model
-selection, an admin API, persistent chat history, and checkpoint cleanup.
+# Vidyalaya AI — Implementation Plan
 
 ---
 
-## 1. Current state (what exists and works today)
+## Feature 1: Multi-Step Retrieval (Suchipatra → Chapter Flow)
 
-**Architecture**
-- FastAPI on Railway. Firebase Auth (identity only; tokens verified, never stored).
-- LearnAssist agent built with LangChain `create_agent` (LangGraph ReAct: model ⇄ tools).
-- Tool `search_textbook` → Qdrant retrieval (Gemini embeddings). The model decides *whether*
-  to search; the tool always searches with the student's raw text.
-- LLM via a provider layer, switchable in `.env` (`google` or `openrouter`; model id configurable).
-  Embeddings always Gemini.
-- Memory: MongoDB checkpointer (`MongoDBSaver`), one thread per student
-  (`thread_id = learnassist:{firebase_uid}`). Only `messages` are checkpointed.
-- Per-turn inputs (board, class, subject, language) passed via `context=` each request — not stored.
-- System prompt injected per request (`dynamic_prompt`) — not stored.
-- Last 10 messages sent to the model (`trim_messages` in a `wrap_model_call` hook); full history
-  kept in the checkpointer.
-- Orphan-heal hook removes a dangling tool turn left by a crashed turn (loop-safe).
-- Daily quota: `daily_usage` counter (3/day default), `quota_override` per user
-  (`unlimited` | int). IST reset.
+### The Problem
 
-**Data stores**
-- MongoDB Atlas: `users`, `student_profiles`, `daily_usage`, `checkpoints`, `checkpoint_writes`.
-- Qdrant: textbook chunks + embeddings (unchanged by this plan).
+Student asks: "explain first chapter" or "pehla chapter kya hai"
 
-**Endpoints**
-- `GET /health`, `GET /auth/me`, `GET/PUT /me/profile`, `GET /me/usage`, `POST /learnassist/chat`.
+Today the agent does one thing: call `search_textbook` once with the student's
+raw message. That one call returns random pages that loosely match — not the
+chapter content. The agent has no way to discover *what* the first chapter is
+before retrieving it.
 
-**Known gaps (this plan addresses)**
-- Mongo cost; LLM/provider failures surface as raw 500s; no usage/token tracking; no admin tools;
-  no subscription-based model selection; checkpoints grow unbounded; no permanent chat history
-  for scroll-back.
-
----
-
-## 2. Decisions (locked with product owner)
-
-- **Database:** migrate Mongo → **Postgres**. Host: Supabase, but code stays **DB-agnostic**
-  (any Postgres via `DATABASE_URL`).
-- **Access layer:** **SQLAlchemy 2.x async + asyncpg**. **Alembic** added but used pragmatically —
-  during dev, freely drop/recreate tables (no migration churn); adopt migration discipline only
-  as we approach production.
-- **Chat history:** student sees their **full past conversation** (single continuous chat). Stored
-  in our own **`messages` table** (permanent, display-only), independent of the checkpointer — so
-  checkpoints can be pruned for cost without losing what the user sees.
-- **Checkpoint retention:** keep **last 50 rows per thread** + **expire threads idle > 90 days**.
-  Safe because `messages` holds the real history and the model only needs the last 10.
-- **Usage logging:** **full per-turn log** in `usage_events`, written **non-blocking after the
-  response**. Safe because quota enforcement lives in `daily_usage` (blocking hot path); a rare
-  lost analytics row never affects quota or correctness. (Revisit to blocking/outbox when real
-  paid billing arrives.)
-- **Subscription plans:** quota + LLM provider/model are selected from hardcoded plan definitions
-  (`free`, `plus`, `pro`) via a user's current `subscriptions.plan_key`. Admins manually assign
-  plans first; payment-provider automation comes later without redesigning the schema.
-- **Admin:** JSON API only (no UI), gated by existing `users.role == "admin"`.
-- **Error handling:** retries + timeout + typed errors so the app never receives a raw 500.
-
-Why Postgres for the checkpointer is safe: `langgraph-checkpoint-postgres` provides
-`AsyncPostgresSaver`, **interface-compatible with `MongoDBSaver`** — no graph code changes, only
-`await saver.setup()` once to create its tables.
-
----
-
-## 3. Target data model (Postgres)
-
-| Table | Purpose | Hot path? | Notes |
-|---|---|---|---|
-| `users` | identity, role, status, emergency overrides | yes (auth) | keep `quota_override` for admin exceptions |
-| `student_profiles` | board, class, language | onboarding | as today |
-| `daily_usage` | quota counter | **yes (blocking)** | unique (firebase_uid, date_ist, agent) |
-| `subscriptions` | current/historical plan assignment | yes (auth/chat) | active `plan_key` chooses quota + LLM model |
-| `messages` | permanent chat history (scroll-back) | no | id, firebase_uid, thread_id, agent, role, content, citations(jsonb), created_at |
-| `usage_events` | analytics log | no (async) | tokens, llm_calls, tool_calls, model, agent, created_at |
-| checkpoint tables | agent runtime memory | yes | managed by `AsyncPostgresSaver.setup()`; pruned |
-| *(later)* `student_links` | parent/teacher links | — | not now |
-
-Initial `subscriptions` columns:
-
-| Column | Purpose |
-|---|---|
-| `id` | primary key |
-| `user_id` | FK to `users.id` |
-| `firebase_uid` | denormalized lookup key |
-| `plan_key` | hardcoded plan id (`free`, `plus`, `pro`) |
-| `status` | `active`, `trialing`, `past_due`, `cancelled`, `expired` |
-| `source` | `admin` now; later `manual`, `razorpay`, `stripe` |
-| `current_period_start`, `current_period_end` | billing/entitlement window; nullable for admin/manual plans |
-| `cancel_at_period_end` | payment-provider compatible cancellation flag |
-| `started_at`, `ended_at` | assignment lifecycle; one current row has `ended_at IS NULL` |
-| `created_at`, `updated_at` | audit timestamps |
-| `metadata` | JSONB for provider-specific details later |
-
-Token counts come from LangChain response `usage_metadata` (Gemini + OpenRouter both return it),
-summed across the turn's AI messages.
-
----
-
-## 4. Phases
-
-Phase 1 is the gate (everything writes to the final DB). Phases 2–7 are independent after it and
-can ship in any order.
-
-### Phase 1 — Postgres migration (foundation)
-- Add `sqlalchemy[asyncio]`, `asyncpg`, `alembic`, `langgraph-checkpoint-postgres`; drop
-  `motor`, `pymongo`, `langgraph-checkpoint-mongodb`.
-- `DATABASE_URL` config (generic Postgres). New `db/` engine + async session.
-- SQLAlchemy models for `users`, `student_profiles`, `daily_usage`. For dev: create tables on
-  startup (Alembic baseline added but not enforced yet).
-- Rewrite repository/service SQL, keeping the **same function signatures** so routers/dependencies
-  are untouched: `users/repository.py`, `quota/service.py`. The quota atomic
-  upsert+increment becomes an `INSERT ... ON CONFLICT DO UPDATE ... RETURNING count`.
-- Swap checkpointer `MongoDBSaver` → `AsyncPostgresSaver`; `await setup()` in app lifespan startup;
-  update `close` logic.
-- Verify: onboard → chat → follow-up → quota all pass on Postgres; checkpoints land in PG;
-  restart preserves memory; second device continues same thread.
-
-### Phase 2 — Error handling (no raw 500s)
-- Add `ModelRetryMiddleware` to the agent (retry transient model/provider errors with backoff).
-- Wrap agent invocation in `asyncio.wait_for` timeout guard.
-- Map failures to clean JSON in `api/exceptions.py`:
-  - quota → 429 (exists)
-  - model/provider unavailable or rate-limited → 503 "Assistant is busy, please try again."
-  - timeout → 504 "That took too long, please try again."
-  - unexpected → 500 generic safe text (exists). Full detail logged server-side only.
-- Verify: forced model failure → friendly 503; slow call → 504; never a stack trace to the client.
-
-### Phase 3 — Messages table (permanent chat history / scroll-back)
-- `messages` table + model.
-- In the runner, after a successful turn, persist the human message + AI answer (+ citations).
-  Reuse the same post-response non-blocking path as usage (Phase 4).
-- `GET /me/history?limit=&before=` — paged, returns the student's conversation oldest→newest for
-  scroll-back. (Single thread per student, so no thread param needed.)
-- Verify: after chats, history endpoint returns the full conversation in order; survives checkpoint
-  cleanup.
-
-### Phase 4 — Usage / token accounting
-- `usage_events` table + model.
-- Capture per turn in the runner: `llm_calls`, `tokens_input/output/total` (from `usage_metadata`),
-  `tool_calls`, `model`, `agent`.
-- Write `usage_events` non-blocking after the response (FastAPI BackgroundTask / asyncio task).
-- Verify: after N chats, row counts and summed token/call columns match actual activity.
-
-### Phase 5 — Subscription plans for quota + model selection
-- Add a `subscriptions` table and service for resolving the user's effective plan. No active
-  subscription row means `free`.
-- Hardcode plan definitions in code first:
-  - `free`: default daily quota + default low-cost model.
-  - `plus`: higher daily quota + stronger/costlier model.
-  - `pro`: highest daily quota + strongest configured model.
-- Replace the single cached agent with `get_agent_for(provider, model)` cached by (provider, model).
-- Chat resolves effective quota/provider/model from active subscription plan (`active` or
-  `trialing`) → else `free`; keep existing `quota_override` only as an emergency admin exception.
-- Log the actual model used, and optionally `plan_key`, in `usage_events`.
-- Verify: no subscription uses `free`; admin-assigned `plus`/`pro` users use that plan's quota and
-  model; cancelled/expired users fall back to `free`.
-
-### Phase 6 — Admin API
-- `require_admin` dependency (403 if `role != "admin"`).
-- Endpoints:
-  - `GET /admin/users` — paged list (uid, email, role, status, overrides, last_seen).
-  - `GET /admin/users/{uid}` — profile + current subscription/plan + usage summary.
-  - `GET /admin/users/{uid}/usage` — rollup by agent/day (requests, llm_calls, tokens).
-  - `PATCH /admin/users/{uid}` — set quota_override and account status.
-  - `PATCH /admin/users/{uid}/subscription` — manually assign `plan_key`/`status`; closes the
-    previous current subscription row and creates a new one.
-  - `GET /admin/stats` — active users, requests/tokens today, top users, per-agent split.
-- Become admin by setting `role='admin'` in DB.
-- Verify: admin sees correct data and can assign plans; non-admin gets 403.
-
-### Phase 7 — Checkpoint cleanup
-- Keep last 50 checkpoint rows per thread; delete threads idle > 90 days.
-- Prefer the checkpointer's built-in prune/TTL API if available; else SQL.
-- Run as a scheduled job (Railway cron / scheduled task hitting an internal endpoint, or a script).
-- Verify: old/idle checkpoints removed; active threads and `messages` untouched.
-
----
-
-## 4b. Channel memory architecture (post-launch correctness fix)
-
-### Problem observed
-A single lifelong thread per student (`thread_id = learnassist:{firebase_uid}`) makes
-**every prior turn — including failed/timed-out ones and other subjects — leak into the
-next answer**. Symptoms:
-- "hi" answered a previous question about photosynthesis/chapters (a turn that had
-  **timed out** but was still persisted by the checkpointer).
-- Switching the requested book from science to maths still returned science answers,
-  because the recent conversation window was full of science.
-
-Root cause is **not** model power or the trim window size. Trimming bounds *how much*
-stale context is sent, not *whether* it's stale. The window contained (a) a poisoned
-failed turn and (b) another subject's turns. The model used them exactly as instructed.
-
-### Design: two selectors (channel = agent, subject = topic); thread is invisible plumbing
-Two orthogonal selectors scope memory; the student never manages threads/sessions
-("new chat"/"clear"):
-- **`channel`** = the agent/surface the student is on (`learn_assist` today, `tutor`
-  later). Top-level prefix of the thread.
-- **`subject`** = the academic subject (science, maths, …). Optional; absent means the
-  cross-subject "general" conversation.
-
-The server derives the thread deterministically:
+What we actually want:
 
 ```
-thread_id = {channel}:{firebase_uid}:{board}:{class_no}:{subject}
-```
-where the subject segment is the chosen subject or the literal `general`.
-
-`board`/`class_no` are in the key (not just the uid) because `student_profiles` is
-**updateable** — a class promotion, re-onboard, or board switch must NOT inherit old
-memory. Longer keys are cheap; wrong memory is expensive.
-
-Examples (one student):
-```
-learn_assist:uid123:scert_odisha:8:general    # ask anything, cross-subject
-learn_assist:uid123:scert_odisha:8:science    # science only
-learn_assist:uid123:scert_odisha:8:maths      # maths only
-tutor:uid123:scert_odisha:8:science           # future Tutor agent, science only
+Step 1: Student asks → agent retrieves the suchipatra (table of contents)
+Step 2: Agent reads the TOC, knows Chapter 1 = "Kabir Das ke Dohe" (pages 13-18)
+Step 3: Agent asks student: "Do you want to learn about Chapter 1: Kabir Das ke Dohe?"
+Step 4: Student says yes → agent retrieves pages 13-18 with the actual chapter name
+Step 5: Agent gives a proper answer with citations
 ```
 
-Rules:
-- The **general** subject thread does **not** share memory with specific-subject threads.
-- Each **subject** thread is isolated → switching subject can't leak (structural fix).
-- **Tutor** (future) is a separate `channel` prefix reusing the same scheme, so its
-  pedagogical state never pollutes Q&A memory.
-- Frontend surfaces these as tabs; **screen = memory** (what's visible always matches
-  what the model remembers).
-
-### Request contract
-`channel` and `subject` are separate fields with separate jobs — `channel` picks the
-agent, `subject` picks the topic. There is no derivation between them, so they can't
-silently disagree.
-
-```jsonc
-{ "channel": "learn_assist", "subject": "science", "message": "explain chapter 1" }
-// -> thread = learn_assist:...:8:science; retrieval filtered to science
-
-{ "channel": "learn_assist", "message": "hi" }   // no subject
-// -> thread = learn_assist:...:8:general; retrieval unfiltered
-```
-When a subject is given the filter is **enforced**; absent subject → the general
-thread, unfiltered.
-
-### Reliability: prevent/clean incomplete turns (not write-side rollback)
-`AsyncPostgresSaver` exposes `adelete_thread` (whole thread) and `aprune`, but **no
-per-checkpoint delete by id** — so a failed turn cannot be surgically rolled back on
-the write side without nuking the whole conversation. Instead we **clean incomplete
-turns on read**, in the `before_model` healing middleware, which already runs each turn
-and is the mechanism we trust. This also covers process crashes, not just timeouts.
-
-Healing is **lazy/on-read**: it cleans what the *model* sees. The poisoned checkpoint
-may briefly remain in Postgres until the next turn heals it — acceptable because the
-clean history source of truth is the `messages` table (chatlog), read separately.
-
-### Phases
-**Phase A — reliability (ship first, no API/app change):**
-- Harden `_heal_history` to also drop a dangling **HumanMessage with no completed
-  answer** (currently it only strips orphaned tool calls), so a timed-out/crashed turn
-  can't leak into the next, new question.
-- Stop greetings/small-talk from triggering retrieval.
-- Make the latest user message authoritative over stale context.
-- Tests: `timeout → next "hi"` must not answer the prior question.
-
-**Phase B — channels (structural fix + product vision):**
-- Add `channel` (agent; default `learn_assist`) and keep `subject` (optional academic
-  subject) as separate request fields.
-- Thread key `{channel}:{uid}:{board}:{class_no}:{subject|general}`, built by one shared
-  `build_thread_id` helper used by both the chat and history endpoints (no drift).
-- Enforce the subject filter when a subject is given; absent subject → the general
-  (unfiltered) thread.
-- `GET /me/history?channel=…&subject=…&board=…&class_no=…` scopes display history to
-  the same thread, so each tab shows only its own messages (screen = model memory).
-  board/class are passed by the client (same values it sends on chat) — no profile read.
-
-**Phase C — future:** Tutor agent reuses the key scheme with a `tutor` channel. No rework.
+This is 2 retrieval calls per turn when needed. The LangGraph ReAct loop
+already supports this — the agent can call `search_textbook` multiple times
+in one turn. The infrastructure is there.
 
 ---
 
-## 5. What stays the same
+### Key Bug to Fix First: tools.py line 52-53
 
-- The LangGraph agent design (create_agent, tools, trim, heal, dynamic prompt) — unchanged.
-- Qdrant retrieval + Gemini embeddings — unchanged.
-- "One continuous chat per student" UX — superseded by §4b channels (General stays the
-  default channel, so the single-chat experience is preserved until tabs ship).
+The current `search_textbook` tool **ignores** the LLM's `query` argument
+and always substitutes the raw student message:
 
-## 6. Out of scope (future)
+```python
+# tools.py line 52-53 (current — this is the bug)
+student_query = _latest_student_message(runtime) or query
+```
 
-- Tutor Agent (separate plan).
-- Payment-provider automation/webhooks (Razorpay/Stripe), parent/teacher roles (`student_links`).
-- Prompt tuning passes (ongoing, as needed).
-- `max_tokens=1200` truncation handling — revisit in Phase 2 if observed.
+This was added with the intent that "Odia stays Odia" — but it breaks
+multi-step retrieval entirely. If the LLM's second call is
+`search_textbook(query="Kabir Das ke Dohe pages 13 to 18")`, the tool ignores
+that and searches for "pehla chapter kya hai" again. Same result, infinite loop.
+
+**Fix:** Remove the override. Trust the LLM's generated query.
+This is also what unlocks the Feature 2 (language intelligence) — the LLM
+generates the right native-script query and passes it; the tool must use it.
+
+```python
+# tools.py after fix
+result = retrieve_textbook(query=query, board=ctx.board, ...)
+```
 
 ---
 
-## 7. Verification summary
+### Suchipatra: Where Is It in the DB?
 
-- **P1:** full flow on Postgres; memory survives restart.
-- **P2:** failures → friendly 4xx/5xx, never raw 500/stack trace.
-- **P3:** scroll-back shows full conversation; survives cleanup.
-- **P4:** usage_events totals match real calls/tokens.
-- **P5:** subscribed users use plan model/quota; no/inactive subscription falls back to `free`.
-- **P6:** admin data correct, plan assignment works, non-admin blocked.
-- **P7:** old checkpoints pruned; history + active threads intact.
+Every SCERT book has a table of contents (suchipatra / विषय-सूची / ସୂଚୀପତ୍ର)
+in the first ~5-15 pages. It is already chunked and stored in Qdrant as
+regular text chunks (page 1-15 range typically).
+
+We do NOT need a separate tool or Postgres table. The agent can retrieve
+the TOC by querying for it:
+
+- Odia: `search_textbook(query="ସୂଚୀପତ୍ର", ...)`
+- Hindi: `search_textbook(query="विषय-सूची", ...)`
+- English: `search_textbook(query="table of contents", ...)`
+
+The returned chunk will list chapters + page numbers. The LLM reads it
+and uses those page numbers in the next retrieval call.
+
+---
+
+### Full Multi-Step Flow Design
+
+```
+Student: "pehla chapter samjhao" (Roman Hindi → "explain first chapter")
+
+Turn starts → ReAct loop
+
+LLM step 1 — reasoning:
+  "Student wants chapter 1. I don't know what chapter 1 is in this book.
+   I should check the table of contents first."
+
+Tool call 1: search_textbook(query="विषय-सूची अध्याय")
+  → returns chunk with: "अध्याय 1: कबीर दास के दोहे ... पृष्ठ 13"
+                        "अध्याय 2: मेरी कुटिया ... पृष्ठ 19"
+                        ...
+
+LLM step 2 — reasoning:
+  "Chapter 1 is 'Kabir Das ke Dohe', pages 13-18.
+   I should confirm with the student before retrieving."
+
+LLM responds to student (NO second tool call yet):
+  "Chapter 1 is: Kabir Das ke Dohe (pages 13-18). Shall I explain it?"
+
+--- next student turn ---
+
+Student: "haan" / "yes" / "ha batao"
+
+LLM step 3 — reasoning:
+  "Student confirmed. Now retrieve the actual chapter content."
+
+Tool call 2: search_textbook(query="कबीर दास के दोहे गुरु गोविंद")
+  → returns pages 13-18 content
+
+LLM step 4: synthesizes full answer with citations [1][2][3]
+```
+
+This gives the student a natural, guided experience — not a dump of random pages.
+
+---
+
+### When NOT to Do the Two-Step
+
+The agent should NOT do suchipatra lookup if:
+- The student asks about a specific concept (not a chapter): "what is a doha?"
+- The student names the content directly: "explain kabir das ke dohe"
+- The subject context already makes it obvious (page range known from prior turn)
+
+This is controlled via the system prompt — the LLM decides when to look up TOC first.
+
+---
+
+### Implementation Steps for Feature 1
+
+**Step 1: Fix tools.py** — remove the student_query override (line 52-53).
+Use the LLM's `query` argument directly. This is the only code change needed.
+
+**Step 2: Update the system prompt** (prompt.py `SYSTEM_PROMPT`) with rules:
+
+> MULTI-STEP RETRIEVAL:
+> - When a student asks about a chapter by number ("first chapter", "chapter 2"),
+>   first search for the table of contents using the word "सूचीपत्र" (Hindi),
+>   "ସୂଚୀପତ୍ର" (Odia), or "table of contents" (English) for the subject.
+> - Read the TOC result to find the chapter name and page range.
+> - Then confirm with the student: "Chapter 1 is [name]. Shall I explain it?"
+> - Only after confirmation, do a second search_textbook call with the chapter name
+>   as the query to retrieve the actual content.
+>
+> QUERY GENERATION (for ALL tool calls):
+> - Generate a focused retrieval query in the native script of the textbook.
+> - If the student wrote in Roman script (e.g. "kabir das"), convert to the
+>   textbook's script (Hindi → Devanagari: "कबीर दास", Odia → Odia script).
+> - Never pass the student's raw Roman-script message as the query.
+
+**Step 3: Update tool docstring** (tools.py `search_textbook`):
+
+> `query`: A focused search query in the native script of the textbook language.
+> For Odia books use Odia script, for Hindi use Devanagari, for English use English.
+> The agent generates this query — do not pass the student's raw message.
+> You may call this tool more than once per turn (e.g. first for TOC, then for content).
+
+**Step 4: No changes to retrieval.py, query_embedding.py, or runner.py.**
+The multi-call behavior is already supported by the ReAct loop.
+
+---
+
+### Runner Change: Handle Multiple Tool Calls Per Turn
+
+Currently `_retrieval_from_current_turn` in runner.py only reads the
+**last** ToolMessage. With two calls per turn, we want citations from
+both retrievals. Update it to collect context_blocks from ALL
+search_textbook ToolMessages in the current turn (merged, deduped by chunk_id).
+
+---
+
+## Feature 2: Query Language Intelligence (Multilingual Retrieval)
+
+### Background — Research & Test Results (2026-06-01)
+
+We tested `gemini-embedding-2` (1536-dim) against Class 8 SCERT Odisha books
+with native-language queries vs. English translations of the same query.
+
+**Results:**
+
+| Subject | Native query top-1 score | English translation top-1 score | Delta  | Winner |
+|---------|--------------------------|----------------------------------|--------|--------|
+| Odia    | 0.7751                   | 0.7395                           | +0.036 | Native |
+| Hindi   | 0.7398                   | 0.7074                           | +0.032 | Native |
+| English | 0.7464                   | —                                | —      | Native |
+
+**Key findings:**
+- Native-script queries score 0.03–0.04 higher than English translations
+- Native queries rank pages better (Hindi: actual poem page ranked #1 vs. exercise page #1 for English)
+- Gemini Embedding 2 handles Odia and Hindi script natively
+- Translating to English loses exact-match signal
+- Research confirms: monolingual retrieval > cross-lingual retrieval for Indic languages
+
+**Conclusion:** Always query Qdrant in the textbook's native script.
+
+### The Real Problem — Students Write in Roman Script
+
+Students write like:
+- Hindi: `guru ka matlab kya hai`, `pehla chapter batao`
+- Odia: `birakishore das ke bare me batao`
+
+This is Romanized text — not English, not native script. Embedding it gives
+worse results than either, because it sits in a no-man's-land.
+
+### Plan: LLM Generates the Query (Both Features Share This Fix)
+
+The tools.py fix in Feature 1 (trust the LLM's query argument) enables this too.
+The system prompt update tells the LLM to always generate native-script queries.
+
+Both features are unlocked by the same two changes: fix tools.py + update the prompt.
+
+---
+
+## Implementation Order
+
+1. **Fix tools.py** — remove student_query override (1 line change, critical)
+2. **Update SYSTEM_PROMPT** — add multi-step retrieval + query generation rules
+3. **Update search_textbook docstring** — tell the LLM what to pass
+4. **Update runner.py** — merge context_blocks from multiple tool calls per turn
+5. **Test** — run scripts/multilang_retrieval_test.py + manual chat test with
+   "pehla chapter samjhao" in Hindi Kalika
+
+---
+
+## Future Considerations
+
+- `get_subjects(board, class)` tool — useful if student hasn't selected a subject
+- `get_chapters(board, class, subject)` tool backed by Postgres/config — faster than
+  searching TOC from Qdrant every time, but TOC retrieval works for now
+- Sanskrit: same pattern — Devanagari script for retrieval
+- Subject-language map: `{odia: "or", hindi: "hi", english: "en", sanskrit: "sa"}`
+  injected into context so LLM knows target script without guessing
+
+
+30 min inactive checkpointer. 
+
+if the user is not active for 30 mins .. clearn the checkpointer 

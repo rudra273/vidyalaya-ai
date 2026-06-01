@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from langchain.tools import ToolRuntime, tool
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
 from vidyalaya_ai.agents.learnassist.context import LearnAssistContext
@@ -22,17 +22,6 @@ logger = logging.getLogger("vidyalaya_ai.agents")
 SEARCH_TOOL_NAME = "search_textbook"
 
 
-def _latest_student_message(runtime: ToolRuntime[LearnAssistContext]) -> str | None:
-    """Return the student's most recent raw message from the conversation state."""
-    messages = (runtime.state or {}).get("messages", [])
-    for message in reversed(messages):
-        if isinstance(message, HumanMessage):
-            content = message.content
-            if isinstance(content, str):
-                return content.strip()
-    return None
-
-
 @tool
 def search_textbook(query: str, runtime: ToolRuntime[LearnAssistContext]) -> Command:
     """Search the student's textbook for passages that answer a curriculum question.
@@ -41,19 +30,19 @@ def search_textbook(query: str, runtime: ToolRuntime[LearnAssistContext]) -> Com
     facts, exercise questions). Do NOT use for greetings, thanks, small talk, or
     follow-ups already answerable from the conversation.
 
+    You may call this tool more than once per turn — for example, first to retrieve
+    the table of contents (suchipatra), then again to retrieve the actual chapter.
+
     Args:
-        query: A focused search query derived from the student's question.
+        query: A focused search query in the native script of the textbook language.
+            Odia books -> Odia script. Hindi books -> Devanagari. English -> English.
+            If the student wrote in Roman script (e.g. "kabir das ke dohe"), convert
+            to the correct script before passing here. Use multiple keywords and
+            synonyms for better retrieval (e.g. "कबीर दास दोहे गुरु गोविंद साखी").
     """
     ctx = runtime.context
-
-    # Retrieve with the student's own wording, not the LLM's rephrasing, so the
-    # embedding matches how the question was actually asked (e.g. Odia stays Odia).
-    # The model still decides WHETHER to search; it just doesn't get to rewrite the
-    # search text. Fall back to the model's query if no student message is available.
-    student_query = _latest_student_message(runtime) or query
     logger.info(
-        "search_textbook student_query=%s model_query=%s board=%s class=%s subject=%s",
-        student_query,
+        "search_textbook query=%r board=%s class=%s subject=%s",
         query,
         ctx.board,
         ctx.class_no,
@@ -61,7 +50,7 @@ def search_textbook(query: str, runtime: ToolRuntime[LearnAssistContext]) -> Com
     )
 
     result = retrieve_textbook(
-        query=student_query,
+        query=query,
         board=ctx.board,
         class_no=ctx.class_no,
         subject=ctx.subject,

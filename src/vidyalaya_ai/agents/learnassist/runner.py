@@ -138,24 +138,37 @@ def _usage_from_current_turn(messages: list[Any]) -> TurnUsage:
 def _retrieval_from_current_turn(
     messages: list[Any],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Read retrieval output from the search_textbook ToolMessage of this turn.
+    """Merge retrieval output from ALL search_textbook calls in the current turn.
 
-    Only messages after the last human turn are considered, so a tool result
-    from an earlier turn is never picked up.
+    The agent may call search_textbook more than once per turn (e.g. first for the
+    table of contents, then for the actual chapter content). We collect blocks from
+    every call, deduplicate by chunk_id, and re-number them so citations stay
+    contiguous. Only messages after the last human turn are considered.
     """
     last_human = _last_index(messages, HumanMessage)
-    for message in reversed(messages[last_human + 1 :]):
+    all_blocks: list[dict[str, Any]] = []
+    seen_chunk_ids: set[str] = set()
+    last_retrieval: dict[str, Any] | None = None
+
+    for message in messages[last_human + 1 :]:
         if (
             isinstance(message, ToolMessage)
             and message.name == SEARCH_TOOL_NAME
             and isinstance(message.artifact, dict)
         ):
             artifact = message.artifact
-            return (
-                artifact.get("context_blocks") or [],
-                artifact.get("retrieval") or build_retrieval_metadata(None, tool_used=True),
-            )
-    return [], build_retrieval_metadata(None, tool_used=False)
+            last_retrieval = artifact.get("retrieval")
+            for block in artifact.get("context_blocks") or []:
+                chunk_id = block.get("chunk_id") or id(block)
+                if chunk_id not in seen_chunk_ids:
+                    seen_chunk_ids.add(chunk_id)
+                    all_blocks.append(block)
+
+    if not all_blocks:
+        return [], build_retrieval_metadata(None, tool_used=False)
+
+    retrieval = last_retrieval or build_retrieval_metadata(None, tool_used=True)
+    return all_blocks, retrieval
 
 
 def _last_index(messages: list[Any], message_type: type) -> int:

@@ -38,12 +38,12 @@ class LLMConfig:
     .env without code changes:
 
       LLM_PROVIDER   google | openrouter   (default: openrouter)
-      LLM_MODEL      provider-specific id  (e.g. google/gemini-2.0-flash-001)
+      LLM_MODEL      provider-specific id  (e.g. google/gemini-2.5-flash)
       LLM_TEMPERATURE, LLM_MAX_TOKENS, LLM_REQUEST_TIMEOUT
     """
 
     provider: str = field(default_factory=lambda: _env("LLM_PROVIDER", "openrouter"))
-    model: str = field(default_factory=lambda: _env("LLM_MODEL", "google/gemini-2.0-flash-001"))
+    model: str = field(default_factory=lambda: _env("LLM_MODEL", "google/gemini-2.5-flash"))
     temperature: float = field(default_factory=lambda: _env_float("LLM_TEMPERATURE", 0.2))
     max_tokens: int = field(default_factory=lambda: _env_int("LLM_MAX_TOKENS", 1200))
     request_timeout: float = field(default_factory=lambda: _env_float("LLM_REQUEST_TIMEOUT", 60.0))
