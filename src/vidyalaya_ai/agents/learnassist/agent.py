@@ -15,10 +15,10 @@ from langchain.agents.middleware import (
 )
 from langchain_core.messages import AIMessage, RemoveMessage, ToolMessage, trim_messages
 
-from vidyalaya_ai.agents.learnassist.checkpointer import get_checkpointer
+from vidyalaya_ai.agents.checkpointer import get_checkpointer
 from vidyalaya_ai.agents.learnassist.context import LearnAssistContext
 from vidyalaya_ai.agents.learnassist.prompt import build_system_prompt
-from vidyalaya_ai.agents.learnassist.tools import search_textbook
+from vidyalaya_ai.agents.tools.retrieve_textbook import search_textbook
 from vidyalaya_ai.llm import LLMConfig, create_chat_model
 
 

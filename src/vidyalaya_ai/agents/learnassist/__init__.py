@@ -1,12 +1,12 @@
 """LearnAssist agent: a tool-calling study helper built on ``create_agent``."""
 
-from vidyalaya_ai.agents.learnassist.agent import build_agent, get_agent
-from vidyalaya_ai.agents.learnassist.checkpointer import (
+from vidyalaya_ai.agents.checkpointer import (
     close_checkpointer,
     get_checkpointer,
     initialize_checkpointer,
     reset_thread_checkpoint,
 )
+from vidyalaya_ai.agents.learnassist.agent import build_agent, get_agent
 from vidyalaya_ai.agents.learnassist.context import (
     AGENT,
     LearnAssistContext,

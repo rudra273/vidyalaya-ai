@@ -1,4 +1,8 @@
-"""Tools available to the LearnAssist agent."""
+"""LangChain tool wrapper for textbook retrieval.
+
+Shared across agents — any agent that needs to search indexed textbook content
+can import ``search_textbook`` from here.
+"""
 
 from __future__ import annotations
 
