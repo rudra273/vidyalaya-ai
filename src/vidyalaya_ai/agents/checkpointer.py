@@ -1,10 +1,9 @@
-"""Checkpointer for the LearnAssist agent.
+"""Shared checkpointer for all agents.
 
 Uses Postgres when configured so conversation memory persists across requests and
 process restarts, falling back to an in-memory saver for local/dev/tests.
 
 ``langgraph-checkpoint-postgres`` ships ``AsyncPostgresSaver``, which is
-interface-compatible with the old ``MongoDBSaver`` — no graph code changes. It is
 genuinely async (psycopg3 + an async pool), so checkpoint I/O stays off the event
 loop under ``ainvoke``. Its tables are created once via ``await saver.setup()``,
 invoked from the app lifespan at startup (see ``initialize_checkpointer``).
@@ -58,7 +57,7 @@ async def initialize_checkpointer() -> Any:
         return _checkpointer
 
     if not has_postgres_config():
-        logger.warning("DATABASE_URL not set; LearnAssist using in-memory checkpoints")
+        logger.warning("DATABASE_URL not set; agents using in-memory checkpoints")
         _checkpointer = InMemorySaver()
         return _checkpointer
 
@@ -82,7 +81,7 @@ async def initialize_checkpointer() -> Any:
     saver = AsyncPostgresSaver(_pool)
     await saver.setup()
     _checkpointer = saver
-    logger.info("LearnAssist using AsyncPostgresSaver checkpointer")
+    logger.info("Agents using AsyncPostgresSaver checkpointer")
     return _checkpointer
 
 
@@ -90,7 +89,7 @@ def get_checkpointer() -> Any:
     """Return the already-initialized checkpointer.
 
     ``initialize_checkpointer`` must have run first (app lifespan startup). This
-    synchronous accessor lets the agent be compiled lazily without awaiting.
+    synchronous accessor lets agents be compiled lazily without awaiting.
     """
     if _checkpointer is None:
         raise RuntimeError(

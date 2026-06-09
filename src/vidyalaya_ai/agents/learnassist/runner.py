@@ -14,7 +14,7 @@ from vidyalaya_ai.agents.exceptions import AgentTimeout, AgentUnavailable
 from vidyalaya_ai.agents.learnassist.agent import get_agent_for
 from vidyalaya_ai.agents.learnassist.context import LearnAssistContext
 from vidyalaya_ai.agents.learnassist.prompt import build_citations, build_retrieval_metadata
-from vidyalaya_ai.agents.learnassist.tools import SEARCH_TOOL_NAME
+from vidyalaya_ai.agents.tools.retrieve_textbook import SEARCH_TOOL_NAME
 
 
 logger = logging.getLogger("vidyalaya_ai.agents")
