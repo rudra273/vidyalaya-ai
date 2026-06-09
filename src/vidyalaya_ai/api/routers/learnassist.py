@@ -117,7 +117,13 @@ async def learnassist_chat(
         thread_id=thread_id,
         provider=current_user.plan_provider,
         model=current_user.plan_model,
+        image_base64=payload.image_base64,
+        image_media_type=payload.image_media_type,
     )
+
+    # Store the student's text; fall back to a marker when only an image was sent
+    # so history rows are never empty. Raw image bytes are never persisted.
+    persisted_question = payload.message or "[Image shared]"
 
     # Persist history + usage after the response is sent (Phases 3 & 4): never
     # adds latency, and a failed write can't fail an answer already produced.
@@ -126,7 +132,7 @@ async def learnassist_chat(
         firebase_uid=firebase_uid,
         thread_id=thread_id,
         agent=AGENT,
-        question=payload.message,
+        question=persisted_question,
         answer=result.answer,
         citations=result.citations,
         usage=result.usage,

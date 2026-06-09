@@ -49,12 +49,14 @@ class LearnAssistResult:
 
 
 async def run_learnassist(
-    message: str,
+    message: str | None,
     context: LearnAssistContext,
     *,
     thread_id: str,
     provider: str | None = None,
     model: str | None = None,
+    image_base64: str | None = None,
+    image_media_type: str = "image/jpeg",
 ) -> LearnAssistResult:
     """Run one chat turn and return the answer with citations and metadata.
 
@@ -80,10 +82,11 @@ async def run_learnassist(
 
     # Any orphaned tool turn left by a previous crash is cleaned by the agent's
     # _heal_history middleware before the model runs (see agent.py).
+    human_message = _build_human_message(message, image_base64, image_media_type)
     try:
         state = await asyncio.wait_for(
             agent.ainvoke(
-                {"messages": [HumanMessage(message)]},
+                {"messages": [human_message]},
                 context=context,
                 config=config,
             ),
@@ -177,6 +180,27 @@ def _last_index(messages: list[Any], message_type: type) -> int:
         if isinstance(messages[index], message_type):
             return index
     return -1
+
+
+def _build_human_message(
+    message: str | None,
+    image_base64: str | None = None,
+    image_media_type: str = "image/jpeg",
+) -> HumanMessage:
+    """Build a HumanMessage, adding an inline image block when one is supplied."""
+    text = message or ""
+    if not image_base64:
+        return HumanMessage(text)
+    content: list[dict] = []
+    if text:
+        content.append({"type": "text", "text": text})
+    content.append(
+        {
+            "type": "image_url",
+            "image_url": {"url": f"data:{image_media_type};base64,{image_base64}"},
+        }
+    )
+    return HumanMessage(content=content)
 
 
 def _final_text(message: Any) -> str:

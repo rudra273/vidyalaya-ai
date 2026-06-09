@@ -4,9 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from vidyalaya_ai.api.schemas.me import UsageResponse
+
+# ~10 MB base64 ceiling (~7.5 MB raw) — generous enough for a compressed phone
+# photo while staying well under Gemini's 20 MB inline-data limit.
+_MAX_IMAGE_BASE64_BYTES = 10 * 1024 * 1024
+
+KNOWN_IMAGE_MEDIA_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
 
 
 # Subjects present in the indexed textbook data.
@@ -39,11 +45,22 @@ class LearnAssistChatRequest(BaseModel):
     never leak into each other and a class/board change starts fresh.
     """
 
-    message: str = Field(
-        ...,
-        min_length=1,
+    message: str | None = Field(
+        default=None,
         max_length=2000,
+        description="The student's question or note. Optional when image_base64 is provided.",
         examples=["how many chapters are there in the science book?"],
+    )
+    image_base64: str | None = Field(
+        default=None,
+        description=(
+            "Optional base64-encoded image of notes, assignments, or textbook pages. "
+            "Supported types: image/jpeg, image/png, image/webp. Max 10 MB encoded."
+        ),
+    )
+    image_media_type: str = Field(
+        default="image/jpeg",
+        description="MIME type of image_base64. One of: image/jpeg, image/png, image/webp.",
     )
     board: str = Field(..., min_length=1, examples=["scert_odisha"])
     class_no: int = Field(..., ge=1, le=12, examples=[8])
@@ -75,6 +92,33 @@ class LearnAssistChatRequest(BaseModel):
 
         cleaned = value.strip()
         return cleaned or None
+
+    @field_validator("image_base64")
+    @classmethod
+    def validate_image_size(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if len(value) > _MAX_IMAGE_BASE64_BYTES:
+            raise ValueError(
+                f"image_base64 exceeds the 10 MB limit ({len(value)} bytes encoded)."
+            )
+        return value
+
+    @field_validator("image_media_type")
+    @classmethod
+    def validate_image_media_type(cls, value: str) -> str:
+        if value not in KNOWN_IMAGE_MEDIA_TYPES:
+            raise ValueError(
+                "image_media_type must be one of: "
+                + ", ".join(sorted(KNOWN_IMAGE_MEDIA_TYPES))
+            )
+        return value
+
+    @model_validator(mode="after")
+    def require_message_or_image(self) -> "LearnAssistChatRequest":
+        if not self.message and not self.image_base64:
+            raise ValueError("Either message or image_base64 must be provided.")
+        return self
 
     @field_validator("board")
     @classmethod
