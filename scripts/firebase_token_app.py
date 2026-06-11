@@ -8,6 +8,7 @@ REST API.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import sys
@@ -182,16 +183,30 @@ if id_token:
             "Subject",
             ["science", "maths", "english", "hindi", "odia", "sanskrit", "social_science", ""],
         )
+        uploaded_image = st.file_uploader(
+            "Image (optional)",
+            type=["jpg", "jpeg", "png", "webp"],
+            help="Attach a photo of notes/assignment. Message becomes optional when set.",
+        )
         debug = st.checkbox("Debug retrieval", value=False)
         if st.button("POST /learnassist/chat"):
-            payload = {
-                "message": message,
+            payload: dict[str, Any] = {
+                "message": message or None,
                 "board": "scert_odisha",
                 "class_no": 8,
                 "subject": subject or None,
                 "language": "en",
                 "debug": debug,
             }
+            if uploaded_image is not None:
+                image_bytes = uploaded_image.getvalue()
+                media_type = uploaded_image.type or "image/jpeg"
+                # Normalize the jpg shorthand Streamlit may report.
+                if media_type == "image/jpg":
+                    media_type = "image/jpeg"
+                payload["image_base64"] = base64.b64encode(image_bytes).decode("ascii")
+                payload["image_media_type"] = media_type
+                st.image(image_bytes, caption=f"{media_type} ({len(image_bytes)} bytes)", width=200)
             try:
                 st.json(_api_post(api_base_url, "/learnassist/chat", id_token, payload))
             except Exception as exc:  # noqa: BLE001 - developer tool.
