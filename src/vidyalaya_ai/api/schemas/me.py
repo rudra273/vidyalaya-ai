@@ -18,8 +18,11 @@ class ProfileRequest(BaseModel):
     class_no: int = Field(..., ge=1, le=12)
     preferred_language: str = Field(..., min_length=2, max_length=8)
     school_name: str | None = Field(default=None, max_length=200)
+    # Student display name. Optional: omit/None leaves the stored name unchanged
+    # (it is seeded from the Google account at first sign-in).
+    name: str | None = Field(default=None, max_length=120)
 
-    @field_validator("board", "preferred_language", "school_name", mode="before")
+    @field_validator("board", "preferred_language", "school_name", "name", mode="before")
     @classmethod
     def strip_text(cls, value):
         """Normalize profile text inputs."""
@@ -44,6 +47,9 @@ class ProfileResponse(BaseModel):
     class_no: int
     preferred_language: str
     school_name: str | None = None
+    # Display name from the user record (custom if the student set one,
+    # otherwise the Google account name).
+    name: str | None = None
     onboarding_completed: bool
     created_at: datetime
     updated_at: datetime

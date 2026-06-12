@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 
 from vidyalaya_ai.db.engine import session_scope
@@ -69,10 +69,14 @@ async def upsert_user_from_token(
 ) -> UserDoc:
     """Create or refresh a user from a verified Firebase identity."""
     now = _now()
-    # On insert: seed identity + defaults. On conflict: refresh the mutable
-    # identity fields (display_name, last_seen, and email when present) but never
-    # touch role/status/quota_override set elsewhere.
-    update_on_conflict: dict[str, object] = {"display_name": name, "last_seen_at": now}
+    # On insert: seed identity + defaults. On conflict: refresh last_seen and
+    # email, but only fill display_name when it is currently NULL — once set
+    # (from the first token, or edited by the student via PUT /me/profile) the
+    # token must not overwrite it. Never touch role/status/quota_override.
+    update_on_conflict: dict[str, object] = {
+        "display_name": func.coalesce(User.display_name, name),
+        "last_seen_at": now,
+    }
     if email is not None:
         update_on_conflict["email"] = email
 
@@ -110,6 +114,18 @@ async def get_user_by_firebase_uid(firebase_uid: str) -> UserDoc | None:
         )
         user = result.scalar_one_or_none()
         return _user_to_doc(user) if user is not None else None
+
+
+async def update_display_name(firebase_uid: str, display_name: str) -> None:
+    """Set the user's display name (student-edited via profile)."""
+    async with session_scope() as session:
+        result = await session.execute(
+            select(User).where(User.firebase_uid == firebase_uid)
+        )
+        user = result.scalar_one_or_none()
+        if user is not None:
+            user.display_name = display_name
+            await session.commit()
 
 
 async def get_profile(firebase_uid: str) -> StudentProfileDoc | None:
