@@ -24,7 +24,14 @@ from vidyalaya_ai.api.schemas.me import (
 from vidyalaya_ai.auth.models import AuthenticatedUser
 from vidyalaya_ai.chatlog import get_history
 from vidyalaya_ai.quota.service import get_usage
-from vidyalaya_ai.users.repository import get_preferences, get_profile, upsert_preferences, upsert_profile
+from vidyalaya_ai.users.repository import (
+    get_preferences,
+    get_profile,
+    get_user_by_firebase_uid,
+    update_display_name,
+    upsert_preferences,
+    upsert_profile,
+)
 
 
 router = APIRouter(prefix="/me", tags=["me"])
@@ -43,11 +50,15 @@ async def read_profile(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Profile not found.",
         )
+    # Read the name fresh from the user record (the cached auth identity can lag
+    # up to the auth-cache TTL behind a rename).
+    user_doc = await get_user_by_firebase_uid(firebase_uid)
     return ProfileResponse(
         board=profile.board,
         class_no=profile.class_no,
         preferred_language=profile.preferred_language,
         school_name=profile.school_name,
+        name=user_doc.display_name if user_doc else current_user.name,
         onboarding_completed=profile.onboarding_completed,
         created_at=profile.created_at,
         updated_at=profile.updated_at,
@@ -209,11 +220,18 @@ async def write_profile(
         preferred_language=payload.preferred_language,
         school_name=payload.school_name,
     )
+    # Name lives on the user record, not the profile row; update it only when
+    # the client sent one so older app versions keep working unchanged.
+    name = current_user.name
+    if payload.name is not None:
+        await update_display_name(firebase_uid, payload.name)
+        name = payload.name
     return ProfileResponse(
         board=profile.board,
         class_no=profile.class_no,
         preferred_language=profile.preferred_language,
         school_name=profile.school_name,
+        name=name,
         onboarding_completed=profile.onboarding_completed,
         created_at=profile.created_at,
         updated_at=profile.updated_at,
