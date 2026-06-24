@@ -20,7 +20,7 @@ class UploadConfig:
     """Settings for uploading saved embeddings to Qdrant."""
 
     board: str = "scert_odisha"
-    class_no: int = 8
+    class_no: int = 7
     embedding_model: str = "gemini-embedding-2"
     embedding_dim: int = 1536
     collection_name: str = "vidyalaya_textbook_chunks"
