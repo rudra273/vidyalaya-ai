@@ -1,6 +1,38 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # vidyalaya-ai — Codebase Map
 
-FastAPI RAG service that answers student questions from OCR'd school textbooks. Uses Gemini for embeddings + chat completion, Qdrant for vector storage, Firebase for auth, and Postgres for users/profiles/usage. Mobile app sends a query → server retrieves relevant textbook chunks → LLM synthesizes an answer with citations.
+FastAPI RAG service that answers student questions from OCR'd school textbooks. Uses Gemini for embeddings, a pluggable provider (OpenRouter or Google) for chat completion, Qdrant for vector storage, Firebase for auth, and Postgres for users/profiles/usage. Mobile app sends a query → server retrieves relevant textbook chunks → LLM synthesizes an answer with citations.
+
+## Commands
+
+`src/` is not installed as a package — **every Python entrypoint needs `PYTHONPATH=src`**, and the venv lives at `.venv/`. Python 3.12.
+
+```
+# Local dev server (auto-reload)
+docker compose up -d                                          # start local Qdrant first
+PYTHONPATH=src .venv/bin/uvicorn vidyalaya_ai.main:app --reload
+
+# DB migrations (prod runs these on deploy; dev also auto-creates tables on startup)
+PYTHONPATH=src .venv/bin/alembic upgrade head
+PYTHONPATH=src .venv/bin/alembic revision --autogenerate -m "msg"
+
+# Tests — standalone scripts with their own __main__, NOT pytest-configured.
+# Run a single test file directly:
+.venv/bin/python tests/test_session_reset.py
+.venv/bin/python tests/test_heal_history.py
+
+# Offline pipelines (run from repo root)
+PYTHONPATH=src .venv/bin/python ingestion/main.py            # chunk → embed → upsert to Qdrant
+.venv/bin/python ocr/main.py                                 # PDFs → JSONL (uncomment __main__ block)
+
+# Dev helper scripts (scripts/)
+.venv/bin/streamlit run scripts/firebase_token_app.py        # mint Firebase ID tokens to hit local APIs
+PYTHONPATH=src .venv/bin/python scripts/probe_qdrant.py      # inspect Qdrant collections
+.venv/bin/python scripts/cleanup_checkpoints.py              # clear LearnAssist agent memory
+```
 
 ## Stack & entrypoints
 
@@ -22,7 +54,7 @@ src/vidyalaya_ai/        FastAPI app — request handling, agents, RAG, LLM, aut
   ├── chatlog/           Permanent chat history (messages) + per-turn usage_events; non-blocking post-response writes; history pagination
   ├── agents/            LearnAssist agent (langchain create_agent + tools + Postgres checkpointer)
   ├── rag/               Query embedding, Qdrant retrieval, context building, eval
-  ├── llm/               LLM provider abstraction (currently Gemini via langchain-google-genai)
+  ├── llm/               Chat-model provider factory (LLM_PROVIDER: openrouter [default] | google); embeddings always Gemini
   ├── tools/             Underlying retrieve_textbook function (wrapped as a tool in agents/)
   └── common/            Shared utilities (placeholder)
 
@@ -45,7 +77,8 @@ logs/                    Runtime logs (api, agents, rag, ingestion)
 reports/                 RAG eval outputs (RAGAS metrics)
 secrets/                 Firebase service account JSON (gitignored)
 docs/                    Deployment guides
-tests/                   Empty
+scripts/                 Dev-only tools: Firebase token minting, Qdrant probes, checkpoint cleanup
+tests/                   Standalone test scripts (run directly via python, not pytest)
 ```
 
 ## Data flow
@@ -56,8 +89,7 @@ tests/                   Empty
 
 ## Read these first for deeper context
 
-- [plan.md](plan.md) — overall architecture
-- [src/vidyalaya_ai/api/api_plan.md](src/vidyalaya_ai/api/api_plan.md) — API spec
+- [data/data.md](data/data.md) — data layer: textbook data directory, OCR → chunk → embed → Qdrant hand-off
 - [src/vidyalaya_ai/llm/llm_plan.md](src/vidyalaya_ai/llm/llm_plan.md) — LLM strategy
 
 ## Maintenance
