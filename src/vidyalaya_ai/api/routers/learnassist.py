@@ -109,6 +109,8 @@ async def learnassist_chat(
     result = await run_learnassist(
         payload.message,
         LearnAssistContext(
+            firebase_uid=firebase_uid,
+            thread_id=thread_id,
             board=payload.board,
             class_no=payload.class_no,
             subject=payload.subject,
@@ -142,6 +144,7 @@ async def learnassist_chat(
         answer=result.answer,
         citations=result.citations,
         retrieval=result.retrieval,
+        tools_used=result.tools_used,
         usage=UsageResponse(
             date_ist=usage.date_ist,
             used=usage.used,

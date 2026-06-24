@@ -67,7 +67,7 @@ def search_textbook(query: str, runtime: ToolRuntime[LearnAssistContext]) -> Com
     # and can never leak from a prior turn via the checkpoint.
     artifact = {
         "context_blocks": blocks,
-        "retrieval": build_retrieval_metadata(result, tool_used=True),
+        "retrieval": build_retrieval_metadata(result),
     }
     return Command(
         update={

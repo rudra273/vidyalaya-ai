@@ -39,8 +39,16 @@ def build_thread_id(
 
 @dataclass
 class LearnAssistContext:
-    """Runtime inputs supplied by the client on each chat request."""
+    """Runtime inputs supplied by the client on each chat request.
 
+    ``firebase_uid`` and ``thread_id`` identify the student and conversation so
+    tools can read this thread's permanent history (see ``get_chat_history``);
+    they are stable per request and, like the rest of the context, are passed at
+    invoke time rather than checkpointed.
+    """
+
+    firebase_uid: str
+    thread_id: str
     board: str
     class_no: int
     subject: str | None = None

@@ -24,6 +24,7 @@ from vidyalaya_ai.agents import (
     close_checkpointer,
     initialize_checkpointer,
 )
+from vidyalaya_ai.agents.logging_config import setup_agents_logging
 from vidyalaya_ai.api.logging_config import setup_api_logging
 from vidyalaya_ai.api.routers import admin, auth, health, learnassist, me
 from vidyalaya_ai.auth.firebase import initialize_firebase_app
@@ -44,6 +45,7 @@ async def lifespan(api: FastAPI):
 def create_app() -> FastAPI:
     """Create the FastAPI application."""
     setup_api_logging()
+    setup_agents_logging()
     initialize_firebase_app()
 
     api = FastAPI(title="Vidyalaya AI", version="0.1.0", lifespan=lifespan)

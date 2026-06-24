@@ -20,7 +20,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 
-from vidyalaya_ai.agents import TurnUsage
+from vidyalaya_ai.common.usage import TurnUsage
 from vidyalaya_ai.db.engine import session_scope
 from vidyalaya_ai.db.models import Message, UsageEvent
 
