@@ -89,6 +89,7 @@ tests/                   Standalone test scripts (run directly via python, not p
 
 ## Read these first for deeper context
 
+- [architecture.drawio](architecture.drawio) — system architecture diagram. Read this to understand the architecture before architecture-level work, and update it **only** when making an architecture-level change (new component, service, or data-flow path). Do not touch it for routine code changes.
 - [data/data.md](data/data.md) — data layer: textbook data directory, OCR → chunk → embed → Qdrant hand-off
 - [src/vidyalaya_ai/llm/llm_plan.md](src/vidyalaya_ai/llm/llm_plan.md) — LLM strategy
 
