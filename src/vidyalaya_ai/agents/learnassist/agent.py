@@ -18,6 +18,7 @@ from langchain_core.messages import AIMessage, RemoveMessage, ToolMessage, trim_
 from vidyalaya_ai.agents.checkpointer import get_checkpointer
 from vidyalaya_ai.agents.learnassist.context import LearnAssistContext
 from vidyalaya_ai.agents.learnassist.prompt import build_system_prompt
+from vidyalaya_ai.agents.tools.chat_history import get_chat_history
 from vidyalaya_ai.agents.tools.retrieve_textbook import search_textbook
 from vidyalaya_ai.llm import LLMConfig, create_chat_model
 
@@ -164,7 +165,7 @@ def build_agent(
     chat_model = create_chat_model(config)
     return create_agent(
         model=chat_model,
-        tools=[search_textbook],
+        tools=[search_textbook, get_chat_history],
         middleware=[_heal_history, _model_retry, _trim_to_recent, _learnassist_prompt],
         context_schema=LearnAssistContext,
         checkpointer=checkpointer,

@@ -28,8 +28,8 @@ PYTHONPATH=src .venv/bin/alembic revision --autogenerate -m "msg"
 PYTHONPATH=src .venv/bin/python ingestion/main.py            # chunk → embed → upsert to Qdrant
 .venv/bin/python ocr/main.py                                 # PDFs → JSONL (uncomment __main__ block)
 
-# Dev helper scripts (scripts/)
-.venv/bin/streamlit run scripts/firebase_token_app.py        # mint Firebase ID tokens to hit local APIs
+# Dev tools
+.venv/bin/streamlit run devtools/streamlit/Home.py           # multipage API tester (token mint, chat, history, console)
 PYTHONPATH=src .venv/bin/python scripts/probe_qdrant.py      # inspect Qdrant collections
 .venv/bin/python scripts/cleanup_checkpoints.py              # clear LearnAssist agent memory
 ```
@@ -87,7 +87,8 @@ logs/                    Runtime logs (api, agents, rag, ingestion)
 reports/                 RAG eval outputs (RAGAS metrics)
 secrets/                 Firebase service account JSON (gitignored)
 docs/                    Deployment guides
-scripts/                 Dev-only tools: Firebase token minting, Qdrant probes, checkpoint cleanup
+devtools/                Interactive dev UIs: multipage Streamlit API tester (devtools/streamlit/)
+scripts/                 Dev-only one-shot CLIs: Qdrant probes, checkpoint cleanup
 tests/                   Standalone test scripts (run directly via python, not pytest)
 ```
 

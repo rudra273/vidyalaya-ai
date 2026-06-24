@@ -76,9 +76,9 @@ def test_reset_thread_checkpoint_with_in_memory_saver() -> None:
     saver = InMemorySaver()
 
     async def _run() -> None:
-        import vidyalaya_ai.agents.learnassist.checkpointer as cp_module
+        import vidyalaya_ai.agents.checkpointer as cp_module
         with patch.object(cp_module, "_checkpointer", saver):
-            from vidyalaya_ai.agents.learnassist.checkpointer import reset_thread_checkpoint
+            from vidyalaya_ai.agents.checkpointer import reset_thread_checkpoint
             await reset_thread_checkpoint("test:uid:scert:8:science")
 
     asyncio.run(_run())

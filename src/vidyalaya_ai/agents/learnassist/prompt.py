@@ -31,6 +31,18 @@ SYSTEM_PROMPT = (
     "needed passages are already present above -> answer from that existing context\n"
     "- rephrasing/translating your own previous answer ('explain again', 'say it in "
     "English') -> use the prior turn\n\n"
+    "CONVERSATION MEMORY:\n"
+    "You can see only the most recent part of your conversation with this student. "
+    "Earlier turns may be missing — for example the student went away and came back "
+    "later, so the conversation above starts fresh. You have a `get_chat_history` "
+    "tool that retrieves this student's earlier messages with you (for this same "
+    "subject) from storage.\n"
+    "Call `get_chat_history` ONLY when the student refers to something from earlier "
+    "that is NOT visible in the messages above and you cannot answer without it — "
+    "e.g. 'continue', 'what were we discussing', 'explain that again' after a gap, or "
+    "a pronoun ('it', 'that') whose subject isn't in view. Do NOT call it for "
+    "greetings, for a brand-new question, or when the needed context is already "
+    "visible above.\n\n"
     "IMAGES — when the student attaches a photo (notes, an assignment, a question "
     "paper, or a textbook page):\n"
     "Read and transcribe the text in the image YOURSELF. The content you read from "
@@ -234,10 +246,11 @@ def build_citations(context_blocks: list[dict[str, Any]], answer: str) -> list[d
 
 def build_retrieval_metadata(
     retrieval_result: dict[str, Any] | None,
-    *,
-    tool_used: bool,
 ) -> dict[str, Any]:
-    """Build response metadata about retrieval."""
-    metadata = dict(retrieval_result.get("metadata", {})) if retrieval_result else {}
-    metadata["tool_used"] = tool_used
-    return metadata
+    """Build response metadata about retrieval.
+
+    Returns the search tool's own summary (query, pages_found, top_score, …), or
+    an empty dict when no textbook search ran this turn. Whether a tool ran is
+    reported separately by ``tools_used`` on the response.
+    """
+    return dict(retrieval_result.get("metadata", {})) if retrieval_result else {}

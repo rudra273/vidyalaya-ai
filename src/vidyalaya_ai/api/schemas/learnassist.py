@@ -187,6 +187,9 @@ class LearnAssistChatResponse(BaseModel):
     answer: str
     citations: list[dict[str, Any]]
     retrieval: dict[str, Any]
+    # Tools that actually ran this turn (e.g. ["search_textbook"],
+    # ["get_chat_history"]); empty when the model answered without any tool.
+    tools_used: list[str] = Field(default_factory=list)
     usage: UsageResponse | None = None
     context_blocks: list[dict[str, Any]] | None = None
 

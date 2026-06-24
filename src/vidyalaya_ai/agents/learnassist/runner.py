@@ -15,6 +15,7 @@ from vidyalaya_ai.agents.learnassist.agent import get_agent_for
 from vidyalaya_ai.agents.learnassist.context import LearnAssistContext
 from vidyalaya_ai.agents.learnassist.prompt import build_citations, build_retrieval_metadata
 from vidyalaya_ai.agents.tools.retrieve_textbook import SEARCH_TOOL_NAME
+from vidyalaya_ai.common.usage import TurnUsage
 
 
 logger = logging.getLogger("vidyalaya_ai.agents")
@@ -26,18 +27,6 @@ _TURN_TIMEOUT_SECONDS = float(os.getenv("LEARNASSIST_TURN_TIMEOUT", "90"))
 
 
 @dataclass
-class TurnUsage:
-    """Per-turn LLM/tool accounting, summed across the turn's AI messages."""
-
-    llm_calls: int = 0
-    tool_calls: int = 0
-    tokens_input: int = 0
-    tokens_output: int = 0
-    tokens_total: int = 0
-    model: str | None = None
-
-
-@dataclass
 class LearnAssistResult:
     """Result of a single LearnAssist turn."""
 
@@ -46,6 +35,9 @@ class LearnAssistResult:
     retrieval: dict[str, Any] = field(default_factory=dict)
     context_blocks: list[dict[str, Any]] = field(default_factory=list)
     usage: TurnUsage = field(default_factory=TurnUsage)
+    # Names of tools that actually ran this turn (e.g. ["search_textbook"],
+    # ["get_chat_history"]); empty when the model answered without any tool.
+    tools_used: list[str] = field(default_factory=list)
 
 
 async def run_learnassist(
@@ -111,6 +103,7 @@ async def run_learnassist(
         retrieval=retrieval,
         context_blocks=blocks,
         usage=_usage_from_current_turn(messages),
+        tools_used=_tools_used_in_current_turn(messages),
     )
 
 
@@ -168,10 +161,27 @@ def _retrieval_from_current_turn(
                     all_blocks.append(block)
 
     if not all_blocks:
-        return [], build_retrieval_metadata(None, tool_used=False)
+        return [], build_retrieval_metadata(None)
 
-    retrieval = last_retrieval or build_retrieval_metadata(None, tool_used=True)
+    retrieval = last_retrieval or build_retrieval_metadata(None)
     return all_blocks, retrieval
+
+
+def _tools_used_in_current_turn(messages: list[Any]) -> list[str]:
+    """Names of tools that actually executed this turn, in first-use order.
+
+    Read from the ToolMessages after the last human turn, so it reflects tools
+    that genuinely ran and returned (not merely ones the model proposed). Names
+    are de-duplicated; the list is empty when no tool was called. This is the
+    single, honest "which tools were used" signal for the turn; the ``retrieval``
+    block only carries ``search_textbook``'s own summary when it ran.
+    """
+    last_human = _last_index(messages, HumanMessage)
+    used: list[str] = []
+    for message in messages[last_human + 1 :]:
+        if isinstance(message, ToolMessage) and message.name and message.name not in used:
+            used.append(message.name)
+    return used
 
 
 def _last_index(messages: list[Any], message_type: type) -> int:
