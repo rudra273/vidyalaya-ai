@@ -37,7 +37,7 @@ class IngestionConfig:
     """Configuration for local ingestion runs."""
 
     board: str = "scert_odisha"
-    class_no: int = 8
+    class_no: int = 7
     subjects: tuple[str, ...] = (
         "english",
         "hindi",

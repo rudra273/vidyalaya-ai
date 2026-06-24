@@ -7,31 +7,31 @@ from pathlib import Path
 jsonlf = [
     {
         "file_name": "social_science.jsonl",
-        "download_url": "https://drive.google.com/uc?export=download&id=1vXqB5C_Op7QXnHp1h96kYhbT-CIQbCgj",
+        "download_url": "https://drive.google.com/uc?export=download&id=1ePOIPPY4KhaLuD4GVZECQ0BfBPmm1KgD",
     },
     {
         "file_name": "sanskrit.jsonl",
-        "download_url": "https://drive.google.com/uc?export=download&id=1bRJ7OxzqDE66RQq622SDIrZCs6D3Kx4H",
+        "download_url": "https://drive.google.com/uc?export=download&id=1yuYTqYQrkTEEkhRVgob9Y-HNuA9Pa4UZ",
     },
     {
         "file_name": "hindi.jsonl",
-        "download_url": "https://drive.google.com/uc?export=download&id=1t_9v6MpwYwJFpFvq68BiR7JxVJ-b2Vi8",
+        "download_url": "https://drive.google.com/uc?export=download&id=1Pfb4Fp1Y8qlzzHpRjO8fTXMILzqljofI",
     },
     {
         "file_name": "english.jsonl",
-        "download_url": "https://drive.google.com/uc?export=download&id=10tuDh1OmmUNB4NVeZN38BwyucmHuulu1",
+        "download_url": "https://drive.google.com/uc?export=download&id=1jTltrMf6FxoGOYYNQWO1vle6wknFMryl",
     },
     {
         "file_name": "odia.jsonl",
-        "download_url": "https://drive.google.com/uc?export=download&id=1EdhYwXyMtdst5Tk7TW-5UMSY50WYJIyw",
+        "download_url": "https://drive.google.com/uc?export=download&id=1h2JKeevdanltlYovYEmTO1W9gghjK1Zb",
     },
     {
         "file_name": "science.jsonl",
-        "download_url": "https://drive.google.com/uc?export=download&id=1nXL_2GoheuAl0Flpgi3RGgrHJNU48FJY",
+        "download_url": "https://drive.google.com/uc?export=download&id=1zNonM1tQOMOMtHJ401hFIVL_vI0frLuv",
     },
     {
         "file_name": "maths.jsonl",
-        "download_url": "https://drive.google.com/uc?export=download&id=1VCIaO8D_AAhHk3PfUfGIOVECUian3s3P",
+        "download_url": "https://drive.google.com/uc?export=download&id=1REGAuMTWVPzFI_cJ839tjWYh8-1_Dvqk",
     },
 ]
 
@@ -69,7 +69,7 @@ def download_file(url, file_path):
 
 
 def main():
-    output_dir = Path("data/processed/ocr/scert_odisha/class_8/jsonl")
+    output_dir = Path("data/processed/ocr/scert_odisha/class_7/jsonl")
     download_files(jsonlf, output_dir)
 
 
