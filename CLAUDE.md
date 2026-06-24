@@ -34,6 +34,16 @@ PYTHONPATH=src .venv/bin/python scripts/probe_qdrant.py      # inspect Qdrant co
 .venv/bin/python scripts/cleanup_checkpoints.py              # clear LearnAssist agent memory
 ```
 
+## Engineering principles
+
+This is a production-grade app. Act like a senior engineer at all times.
+
+- **Standard practices only — no workarounds.** Solve the root cause, not the symptom. Never paper over a problem with a hack.
+- **No over-engineering.** Build what the task needs, nothing speculative. Prefer the simplest design that holds up.
+- **No tech debt.** Don't leave shortcuts, dead code, or "fix later" hacks. If a debt is unavoidable, call it out explicitly.
+- **Standard naming.** Use clear, conventional, descriptive names for files, functions, and variables — consistent with the existing codebase.
+- **Report bugs proactively.** If you spot a bug while working on a feature, tell the user clearly instead of silently working around it or ignoring it. Don't fix unrelated bugs without flagging them first.
+
 ## Stack & entrypoints
 
 - App entry: [src/vidyalaya_ai/main.py](src/vidyalaya_ai/main.py)
