@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends
+from sse_starlette.sse import EventSourceResponse
 
 from vidyalaya_ai.agents import (
     AGENT,
+    AgentTimeout,
+    AgentUnavailable,
     LearnAssistContext,
     build_thread_id,
     reset_thread_checkpoint,
     run_learnassist,
+    run_learnassist_stream,
 )
 from vidyalaya_ai.api.dependencies import get_current_user
 from vidyalaya_ai.api.schemas.learnassist import (
@@ -25,7 +30,7 @@ from vidyalaya_ai.api.schemas.learnassist import (
 from vidyalaya_ai.api.schemas.me import UsageResponse
 from vidyalaya_ai.auth.models import AuthenticatedUser
 from vidyalaya_ai.chatlog import get_last_message_at, persist_turn
-from vidyalaya_ai.quota.service import check_and_increment
+from vidyalaya_ai.quota.service import UsageView, check_and_increment
 from vidyalaya_ai.users.repository import get_preferences
 
 logger = logging.getLogger("vidyalaya_ai.api")
@@ -56,13 +61,17 @@ def should_reset_session(
     return (now - last_message_at) > timedelta(minutes=timeout_minutes)
 
 
-@router.post("/chat", response_model=LearnAssistChatResponse)
-async def learnassist_chat(
+async def _prepare_turn(
     payload: LearnAssistChatRequest,
-    background_tasks: BackgroundTasks,
-    current_user: AuthenticatedUser = Depends(get_current_user),
-) -> LearnAssistChatResponse:
-    """Answer a student query with LearnAssist."""
+    current_user: AuthenticatedUser,
+) -> tuple[str, str, UsageView]:
+    """Run the pre-answer steps shared by the streaming and non-streaming chat
+    endpoints: resolve the thread, expire a stale session, and spend quota.
+
+    Returns ``(firebase_uid, thread_id, usage)``. Quota is spent *before* any
+    answer begins, so an over-quota request raises :class:`QuotaExceeded` (429)
+    cleanly instead of mid-stream. Must run before streaming starts.
+    """
     firebase_uid = current_user.firebase_uid or current_user.user_id
     # Memory is scoped per (channel, board, class, subject) - see build_thread_id -
     # so subjects never leak into each other and a class/board change starts fresh.
@@ -106,6 +115,28 @@ async def learnassist_chat(
             await reset_thread_checkpoint(thread_id)
 
     usage = await check_and_increment(firebase_uid, AGENT, current_user)
+    return firebase_uid, thread_id, usage
+
+
+def _usage_response(usage: UsageView) -> UsageResponse:
+    """Map the quota service view onto the public usage schema."""
+    return UsageResponse(
+        date_ist=usage.date_ist,
+        used=usage.used,
+        limit=usage.limit,
+        remaining=usage.remaining,
+        unlimited=usage.unlimited,
+    )
+
+
+@router.post("/chat", response_model=LearnAssistChatResponse)
+async def learnassist_chat(
+    payload: LearnAssistChatRequest,
+    background_tasks: BackgroundTasks,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> LearnAssistChatResponse:
+    """Answer a student query with LearnAssist."""
+    firebase_uid, thread_id, usage = await _prepare_turn(payload, current_user)
     result = await run_learnassist(
         payload.message,
         LearnAssistContext(
@@ -145,15 +176,129 @@ async def learnassist_chat(
         citations=result.citations,
         retrieval=result.retrieval,
         tools_used=result.tools_used,
-        usage=UsageResponse(
-            date_ist=usage.date_ist,
-            used=usage.used,
-            limit=usage.limit,
-            remaining=usage.remaining,
-            unlimited=usage.unlimited,
-        ),
+        usage=_usage_response(usage),
         context_blocks=result.context_blocks if payload.debug else None,
     )
+
+
+@router.post("/chat/stream")
+async def learnassist_chat_stream(
+    payload: LearnAssistChatRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> EventSourceResponse:
+    """Answer a student query with LearnAssist, streamed as Server-Sent Events.
+
+    Same inputs and pre-flight (auth, session reset, quota) as ``/chat``; the
+    answer is streamed instead of bundled. Frames:
+      - ``event: tool``  – ``{"tool", "status"}`` progress hint per tool call.
+      - ``event: token`` – ``{"text"}`` a piece of the answer.
+      - ``event: done``  – ``{"citations", "retrieval", "tools_used", "usage",
+        ["context_blocks"]}`` final metadata (citations/usage are only known once
+        generation finishes, so they ride here, not with the first bytes).
+      - ``event: error`` – ``{"code", "message"}`` if generation fails mid-stream.
+
+    Pre-flight errors (401/429/...) are returned as normal JSON before any frame
+    is sent. Once streaming has begun the status is already 200, so a failure
+    becomes an ``error`` frame instead of an HTTP error code.
+    """
+    firebase_uid, thread_id, usage = await _prepare_turn(payload, current_user)
+    context = LearnAssistContext(
+        firebase_uid=firebase_uid,
+        thread_id=thread_id,
+        board=payload.board,
+        class_no=payload.class_no,
+        subject=payload.subject,
+        language=payload.language,
+    )
+
+    async def event_stream():
+        done: dict | None = None
+        try:
+            async for ev in run_learnassist_stream(
+                payload.message,
+                context,
+                thread_id=thread_id,
+                provider=current_user.plan_provider,
+                model=current_user.plan_model,
+                image_base64=payload.image_base64,
+                image_media_type=payload.image_media_type,
+            ):
+                kind = ev["type"]
+                if kind == "token":
+                    yield {"event": "token", "data": json.dumps({"text": ev["text"]})}
+                elif kind == "tool":
+                    yield {
+                        "event": "tool",
+                        "data": json.dumps({"tool": ev["tool"], "status": ev["status"]}),
+                    }
+                elif kind == "done":
+                    done = ev
+                    frame = {
+                        "citations": ev["citations"],
+                        "retrieval": ev["retrieval"],
+                        "tools_used": ev["tools_used"],
+                        "usage": _usage_response(usage).model_dump(),
+                    }
+                    if payload.debug:
+                        frame["context_blocks"] = ev["context_blocks"]
+                    yield {"event": "done", "data": json.dumps(frame)}
+        except AgentTimeout:
+            yield {
+                "event": "error",
+                "data": json.dumps(
+                    {
+                        "code": "assistant_timeout",
+                        "message": "That took too long, please try again.",
+                    }
+                ),
+            }
+        except AgentUnavailable:
+            yield {
+                "event": "error",
+                "data": json.dumps(
+                    {
+                        "code": "assistant_unavailable",
+                        "message": "Assistant is busy, please try again.",
+                    }
+                ),
+            }
+        except Exception:
+            logger.exception("LearnAssist stream error thread=%s", thread_id)
+            yield {
+                "event": "error",
+                "data": json.dumps(
+                    {
+                        "code": "service_error",
+                        "message": "Unable to process the request right now.",
+                    }
+                ),
+            }
+
+        # Persist only a completed turn (we have the full answer + usage). The
+        # quota was already spent in _prepare_turn. A half-stream (client
+        # disconnect or mid-stream error) leaves no row, matching the
+        # non-streaming path's "never persist a turn that didn't finish".
+        #
+        # This runs after the try/except completes normally - deliberately NOT in
+        # a finally. If the client disconnects mid-stream, GeneratorExit unwinds
+        # through the suspended yield and this code never runs, so we never await a
+        # DB write while the async generator is being torn down (which would raise
+        # "async generator ignored GeneratorExit").
+        if done is not None:
+            # Store the student's text; fall back to a marker when only an image
+            # was sent so history rows are never empty.
+            persisted_question = payload.message or "[Image shared]"
+            await persist_turn(
+                firebase_uid=firebase_uid,
+                thread_id=thread_id,
+                agent=AGENT,
+                question=persisted_question,
+                answer=done["answer"],
+                citations=done["citations"],
+                usage=done["usage"],
+            )
+
+    return EventSourceResponse(event_stream())
 
 
 @router.post("/memory/reset", response_model=MemoryResetResponse)

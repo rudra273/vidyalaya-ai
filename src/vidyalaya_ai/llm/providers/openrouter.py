@@ -26,4 +26,10 @@ def create_openrouter_chat_model(config: LLMConfig) -> ChatOpenAI:
         temperature=config.temperature,
         max_tokens=config.max_tokens,
         timeout=config.request_timeout,
+        # Enable token streaming for astream (the /chat/stream endpoint). Harmless
+        # for the non-streaming ainvoke path, which still returns the full message.
+        streaming=True,
+        # Without this, the OpenAI-compatible API omits usage from streamed
+        # responses, which would zero out per-turn token accounting in persist_turn.
+        stream_usage=True,
     )
