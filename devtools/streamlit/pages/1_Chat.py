@@ -21,7 +21,7 @@ import base64
 
 import streamlit as st
 
-from _client import AGENTS_LOG, call_api, tail_log
+from _client import AGENTS_LOG, call_api, stream_sse, tail_log
 
 st.set_page_config(page_title="Chat · Vidyalaya Tester", page_icon="💬", layout="wide")
 st.title("💬 LearnAssist Chat")
@@ -49,6 +49,11 @@ with st.sidebar:
     subject = st.selectbox("Subject", SUBJECTS, index=1, format_func=_subject_label)
     language = st.text_input("Language", value="en")
     debug = st.checkbox("Debug retrieval (return context_blocks)", value=False)
+    stream_mode = st.checkbox(
+        "Stream response (SSE)",
+        value=True,
+        help="Hits POST /learnassist/chat/stream and types the answer out token by token.",
+    )
 
 # --- Test actions: wipe the server-side checkpoint (simulates the 30-min reset) ---
 # This calls the same endpoint the inactivity timeout uses, so afterwards a
@@ -110,24 +115,81 @@ if message or (uploaded_image is not None and st.button("Send image only")):
         st.markdown(display_msg)
 
     with st.chat_message("assistant"):
-        with st.spinner("Thinking…"):
-            result = call_api(base_url, "POST", "/learnassist/chat", token=token, json_body=payload)
-        if result["ok"]:
-            data = result["data"]
-            answer = data.get("answer", "(no answer)")
-            st.markdown(answer)
-            transcript.append({"role": "assistant", "content": answer})
-            tools_used = data.get("tools_used") or []
-            meta_cols = st.columns(3)
-            meta_cols[0].metric("tools used", ", ".join(tools_used) if tools_used else "none")
-            usage = data.get("usage") or {}
-            meta_cols[1].metric("used / limit", f"{usage.get('used')}/{usage.get('limit')}")
-            meta_cols[2].metric("citations", len(data.get("citations") or []))
-            with st.expander("Full response JSON"):
-                st.json(data)
+        if stream_mode:
+            status_area = st.empty()
+            answer_area = st.empty()
+            status_area.info("⏳ Waiting for first token…")
+            answer = ""
+            tools_seen: list[str] = []
+            done_data: dict | None = None
+            error_data: dict | None = None
+
+            for frame in stream_sse(
+                base_url, "/learnassist/chat/stream", token=token, json_body=payload
+            ):
+                name = frame["event"]
+                data = frame["data"]
+                if name == "tool":
+                    tool = data.get("tool", "tool")
+                    if tool not in tools_seen:
+                        tools_seen.append(tool)
+                    status_area.info(f"🔧 Running {', '.join(tools_seen)}…")
+                elif name == "token":
+                    answer += data.get("text", "")
+                    answer_area.markdown(answer + " ▌")  # cursor shows live typing
+                elif name == "done":
+                    done_data = data
+                elif name == "error":
+                    error_data = data
+                    break
+                elif name == "_http_error":  # pre-stream failure (401/429/…)
+                    error_data = {
+                        "code": f"http_{data.get('status')}",
+                        "message": data.get("body"),
+                    }
+                    break
+
+            if error_data is not None:
+                status_area.empty()
+                answer_area.empty()
+                st.error(error_data)
+                transcript.append(
+                    {"role": "assistant", "content": f"⚠️ {error_data}"}
+                )
+            else:
+                status_area.empty()
+                answer_area.markdown(answer or "(no answer)")
+                transcript.append({"role": "assistant", "content": answer})
+                data = done_data or {}
+                tools_used = data.get("tools_used") or tools_seen
+                meta_cols = st.columns(3)
+                meta_cols[0].metric(
+                    "tools used", ", ".join(tools_used) if tools_used else "none"
+                )
+                usage = data.get("usage") or {}
+                meta_cols[1].metric("used / limit", f"{usage.get('used')}/{usage.get('limit')}")
+                meta_cols[2].metric("citations", len(data.get("citations") or []))
+                with st.expander("Final 'done' frame JSON"):
+                    st.json(data)
         else:
-            st.error(result)
-            transcript.append({"role": "assistant", "content": f"⚠️ {result['status']}: {result['data']}"})
+            with st.spinner("Thinking…"):
+                result = call_api(base_url, "POST", "/learnassist/chat", token=token, json_body=payload)
+            if result["ok"]:
+                data = result["data"]
+                answer = data.get("answer", "(no answer)")
+                st.markdown(answer)
+                transcript.append({"role": "assistant", "content": answer})
+                tools_used = data.get("tools_used") or []
+                meta_cols = st.columns(3)
+                meta_cols[0].metric("tools used", ", ".join(tools_used) if tools_used else "none")
+                usage = data.get("usage") or {}
+                meta_cols[1].metric("used / limit", f"{usage.get('used')}/{usage.get('limit')}")
+                meta_cols[2].metric("citations", len(data.get("citations") or []))
+                with st.expander("Full response JSON"):
+                    st.json(data)
+            else:
+                st.error(result)
+                transcript.append({"role": "assistant", "content": f"⚠️ {result['status']}: {result['data']}"})
 
 st.divider()
 with st.expander("🔎 Agent log — tool calls (logs/agents.log)"):

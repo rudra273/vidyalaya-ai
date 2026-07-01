@@ -20,4 +20,9 @@ def create_google_chat_model(config: LLMConfig) -> ChatGoogleGenerativeAI:
         temperature=config.temperature,
         max_tokens=config.max_tokens,
         request_timeout=config.request_timeout,
+        # Enable token streaming for astream (the /chat/stream endpoint). Harmless
+        # for the non-streaming ainvoke path, which still returns the full message.
+        # Gemini reports usage_metadata on the final streamed chunk, so per-turn
+        # token accounting keeps working.
+        streaming=True,
     )

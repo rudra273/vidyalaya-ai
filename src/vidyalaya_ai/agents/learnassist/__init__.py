@@ -16,6 +16,7 @@ from vidyalaya_ai.agents.learnassist.runner import (
     LearnAssistResult,
     TurnUsage,
     run_learnassist,
+    run_learnassist_stream,
 )
 
 
@@ -32,4 +33,5 @@ __all__ = [
     "initialize_checkpointer",
     "reset_thread_checkpoint",
     "run_learnassist",
+    "run_learnassist_stream",
 ]

@@ -5,10 +5,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    HumanMessage,
+    ToolMessage,
+)
 
 from vidyalaya_ai.agents.exceptions import AgentTimeout, AgentUnavailable
 from vidyalaya_ai.agents.learnassist.agent import get_agent_for
@@ -105,6 +111,156 @@ async def run_learnassist(
         usage=_usage_from_current_turn(messages),
         tools_used=_tools_used_in_current_turn(messages),
     )
+
+
+async def run_learnassist_stream(
+    message: str | None,
+    context: LearnAssistContext,
+    *,
+    thread_id: str,
+    provider: str | None = None,
+    model: str | None = None,
+    image_base64: str | None = None,
+    image_media_type: str = "image/jpeg",
+) -> AsyncIterator[dict[str, Any]]:
+    """Stream one chat turn, yielding event dicts for an SSE endpoint.
+
+    Yields, in order:
+      - ``{"type": "tool", "tool": <name>, "status": "start"}`` once per tool the
+        model decides to call (e.g. ``search_textbook``) - lets the client show a
+        progress hint while retrieval runs.
+      - ``{"type": "token", "text": <chunk>}`` for each piece of the final answer.
+      - exactly one ``{"type": "done", ...}`` carrying the same metadata the
+        non-streaming path returns (answer, citations, retrieval, usage,
+        tools_used, context_blocks).
+
+    Token text is read only from ``AIMessageChunk`` content, so tool results and
+    the (empty-content) tool-calling step never leak into the answer stream. The
+    terminal metadata is read back from the persisted state via ``aget_state`` so
+    it reuses the exact extractors as :func:`run_learnassist` - retrieval
+    artifacts live on the tool message, not in the token stream.
+
+    Error semantics mirror :func:`run_learnassist`: a turn that exceeds the time
+    budget raises :class:`AgentTimeout`; any other failure that survives the
+    agent's retry middleware raises :class:`AgentUnavailable`. The caller maps
+    these to SSE ``error`` frames (the HTTP status is already 200 once streaming
+    has begun).
+    """
+    agent = get_agent_for(provider, model)
+    config = {"configurable": {"thread_id": thread_id}}
+    logger.info(
+        "LearnAssist stream turn thread=%s board=%s class=%s subject=%s",
+        thread_id,
+        context.board,
+        context.class_no,
+        context.subject,
+    )
+
+    human_message = _build_human_message(message, image_base64, image_media_type)
+    seen_tools: set[str] = set()
+    # Accumulate exactly the text we stream to the client so the persisted answer
+    # equals what the student saw - including any pre-tool narration and original
+    # whitespace. (Re-deriving from messages[-1] would drop earlier assistant text
+    # and strip whitespace, making history disagree with the live transcript.)
+    answer_parts: list[str] = []
+    try:
+        # asyncio.timeout (not wait_for) bounds the whole turn including slow
+        # consumers, since this generator suspends at each yield - an acceptable
+        # protective ceiling so a stuck provider or stalled client can't hold the
+        # connection open indefinitely.
+        async with asyncio.timeout(_TURN_TIMEOUT_SECONDS):
+            async for mode, chunk in agent.astream(
+                {"messages": [human_message]},
+                context=context,
+                config=config,
+                stream_mode=["messages", "updates"],
+            ):
+                if mode == "messages":
+                    msg_chunk, _meta = chunk
+                    text = _chunk_text(msg_chunk)
+                    if text:
+                        answer_parts.append(text)
+                        yield {"type": "token", "text": text}
+                elif mode == "updates":
+                    for tool_name in _tool_starts(chunk):
+                        if tool_name not in seen_tools:
+                            seen_tools.add(tool_name)
+                            yield {
+                                "type": "tool",
+                                "tool": tool_name,
+                                "status": "start",
+                            }
+    except (asyncio.TimeoutError, TimeoutError) as exc:
+        logger.warning("LearnAssist stream timed out thread=%s", thread_id)
+        raise AgentTimeout("LearnAssist turn timed out.") from exc
+    except Exception as exc:
+        logger.exception("LearnAssist stream failed thread=%s", thread_id)
+        raise AgentUnavailable("LearnAssist is temporarily unavailable.") from exc
+
+    # The answer is the text we actually streamed, so what's stored equals what
+    # the student saw. Fall back to the final persisted message only if nothing
+    # streamed (e.g. a provider that didn't emit token chunks) so history is never
+    # empty. Retrieval/usage/tool metadata still come from the persisted state via
+    # the same extractors as /chat.
+    state = await agent.aget_state(config)
+    messages = state.values["messages"]
+    answer = "".join(answer_parts) or _final_text(messages[-1])
+    blocks, retrieval = _retrieval_from_current_turn(messages)
+    yield {
+        "type": "done",
+        "answer": answer,
+        "citations": build_citations(blocks, answer),
+        "retrieval": retrieval,
+        "tools_used": _tools_used_in_current_turn(messages),
+        "usage": _usage_from_current_turn(messages),
+        "context_blocks": blocks,
+    }
+
+
+def _chunk_text(chunk: Any) -> str:
+    """Extract streamable answer text from an LLM message chunk.
+
+    Returns ``""`` for anything that isn't an ``AIMessageChunk`` (e.g. tool
+    results) and for the empty-content chunks emitted while the model is only
+    deciding tool calls. Content is not stripped - inter-token whitespace is
+    significant when reassembling the answer client-side.
+    """
+    if not isinstance(chunk, AIMessageChunk):
+        return ""
+    content = chunk.content
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict) and part.get("type") in (None, "text"):
+                parts.append(part.get("text", ""))
+        return "".join(parts)
+    return ""
+
+
+def _tool_starts(update: Any) -> list[str]:
+    """Names of tools the model requested in a LangGraph ``updates`` chunk.
+
+    An ``updates`` chunk is ``{node_name: {"messages": [...]}}``. We read tool
+    names from each ``AIMessage.tool_calls`` so the progress event fires when the
+    model *decides* to call a tool, before the tool runs.
+    """
+    names: list[str] = []
+    if not isinstance(update, dict):
+        return names
+    for node_update in update.values():
+        if not isinstance(node_update, dict):
+            continue
+        for msg in node_update.get("messages", []) or []:
+            if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+                for call in msg.tool_calls:
+                    name = call.get("name") if isinstance(call, dict) else None
+                    if name:
+                        names.append(name)
+    return names
 
 
 def _usage_from_current_turn(messages: list[Any]) -> TurnUsage:

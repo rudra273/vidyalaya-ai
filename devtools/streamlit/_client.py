@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -105,6 +106,62 @@ def call_api(
         if query:
             url = f"{url}?{query}"
     return _raw_request(url, payload=json_body, bearer_token=token, method=method)
+
+
+def stream_sse(
+    base_url: str,
+    path: str,
+    *,
+    token: str | None = None,
+    json_body: dict[str, Any] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """POST to an SSE endpoint and yield parsed frames as they arrive.
+
+    Each yielded item is ``{"event": <name>, "data": <parsed>}`` where ``data``
+    is JSON-decoded when possible. A pre-stream HTTP failure (e.g. 401/429 from
+    the pre-flight, returned as a normal JSON body) is surfaced as a single
+    ``{"event": "_http_error", "data": {"status", "body"}}`` frame so the caller
+    can render it like any other error. Comment/ping lines (starting with ``:``)
+    are ignored. Dependency-free to match :func:`call_api`.
+    """
+    url = f"{base_url.rstrip('/')}{path}"
+    body = None if json_body is None else json.dumps(json_body).encode("utf-8")
+    headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = Request(url, data=body, headers=headers, method="POST")
+
+    try:
+        response = urlopen(request, timeout=120)
+    except HTTPError as exc:
+        text = exc.read().decode("utf-8", errors="replace")
+        yield {"event": "_http_error", "data": {"status": exc.code, "body": _parse(text)}}
+        return
+    except URLError as exc:
+        yield {
+            "event": "_http_error",
+            "data": {"status": None, "body": f"Request failed: {exc.reason}"},
+        }
+        return
+
+    event_name = "message"
+    data_lines: list[str] = []
+    with response:
+        for raw in response:  # HTTPResponse yields lines as they stream in
+            line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+            if line == "":  # blank line dispatches the buffered event
+                if data_lines:
+                    yield {"event": event_name, "data": _parse("\n".join(data_lines))}
+                event_name = "message"
+                data_lines = []
+            elif line.startswith(":"):
+                continue  # SSE comment / keep-alive ping
+            elif line.startswith("event:"):
+                event_name = line[len("event:") :].strip()
+            elif line.startswith("data:"):
+                data_lines.append(line[len("data:") :].lstrip())
+    if data_lines:  # flush a trailing event with no terminating blank line
+        yield {"event": event_name, "data": _parse("\n".join(data_lines))}
 
 
 def _raw_request(
